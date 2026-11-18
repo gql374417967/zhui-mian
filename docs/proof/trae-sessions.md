@@ -7,6 +7,7 @@
 |---|---|---|---|---|
 | Step 1 项目骨架 | 2026-11-19 | `6afdde4c688eb37b5ca380cd` | 用 Next.js 14 App Router + TS + Tailwind + shadcn/ui 搭建 4 页面骨架（/、/interview、/report、/history），移动端优先 | 从 0 建站；npm run build 通过；320/390/1280px 三档宽度无横向溢出 |
 | Step 2 类型与服务层 | 2026-11-19 | `6afdde4c688eb37b5ca380cd`（与 Step 1 同会话连续完成） | 定义 6 个业务类型；实现 POST /api/chat（OpenAI 兼容 SDK 调用硅基流动 DeepSeek-V3，SSE 流式，30s 限时、失败重试、缺 key 报错、.env.local git 忽略） | 接口实测：29 个流式片段、首字 1499ms、总耗时 2734ms，UTF-8 中文输出正常（见 step2-01 截图） |
+| Step 3 追问引擎 | 2026-11-19 | `6afdf44d688eb37b5ca38222` | lib/prompts.ts 录入 5 个提示词（支持岗位变量注入）；lib/engine.ts 实现四题状态机（原文锚点校验、含糊追问≤2层、连答不上给提示换题、逐题评分、第4题后总复盘、JSON 解析多级降级） | TS 检查通过；故障模拟（坏 JSON/断流/追问上限/模型异常）通过；真实模型两段详略对比测试通过，详例走完四题产出 4 份结构化评分+1 份总复盘；ZCode 代码审查：key 零泄漏、锚点强制原文校验、重试带完整上下文 |
 
 ## 会话截图
 （手动用 Win+Shift+S 截 TRAE 对话窗口，命名如 `screenshot-step1.png` 放本目录）
