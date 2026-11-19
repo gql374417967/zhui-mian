@@ -7,8 +7,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { createInterviewEngine, type InterviewResult, type InterviewState } from "@/lib/engine";
-import { interviewInputKey, interviewSessionKey, readInterviewStorage, type SavedInterview } from "@/lib/interview-storage";
+import { createInterviewEngine, interviewQuestionCount, type InterviewResult, type InterviewState } from "@/lib/engine";
+import { interviewInputKey, interviewSessionKey, practiceStorageKey, readInterviewStorage, saveInterview, type SavedInterview } from "@/lib/interview-storage";
 import type { Feedback, ProjectInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -157,7 +157,8 @@ export default function InterviewPage() {
     latestSaved.current = next;
     setSaved(next);
     try {
-      localStorage.setItem(interviewSessionKey, JSON.stringify(next));
+      const state = next.state;
+      saveInterview(next, state?.practice ? practiceStorageKey(state.session.id) : interviewSessionKey);
       setStorageError(false);
       return true;
     } catch {
@@ -178,7 +179,7 @@ export default function InterviewPage() {
       if (!mounted.current) return;
       setAnimate(true);
       const persisted = save({ ...snapshot, state, draft: "" });
-      if (openReport && persisted) router.push("/report");
+      if (openReport && persisted) router.push(`/report?id=${encodeURIComponent(state.session.id)}`);
       const round = state.session.rounds.at(-1);
       if (round && state.phase !== "completed" && !voice.isCapturing() && document.visibilityState !== "hidden") {
         const previous = snapshot.state;
@@ -210,6 +211,16 @@ export default function InterviewPage() {
     if (!initialized.current) {
       initialized.current = true;
       const params = new URLSearchParams(window.location.search);
+      const practiceId = params.get("practice");
+      if (practiceId !== null) {
+        const practice = readInterviewStorage<SavedInterview>(practiceStorageKey(practiceId));
+        setReady(true);
+        if (practice?.state?.practice && practice.state.session.id === practiceId) {
+          latestSaved.current = practice;
+          setSaved(practice);
+        }
+        return;
+      }
       const input = params.has("demo") ? demoInput
         : params.has("start") ? readInterviewStorage<ProjectInput>(interviewInputKey) : undefined;
       const stored = readInterviewStorage<SavedInterview>(interviewSessionKey);
@@ -236,6 +247,7 @@ export default function InterviewPage() {
   }, [state, busy]);
 
   const activeRound = state?.session.rounds.at(-1);
+  const totalQuestions = interviewQuestionCount(state);
   const active = state && state.phase !== "completed" ? state : null;
 
   function sendAnswer(event?: FormEvent<HTMLFormElement>) {
@@ -267,7 +279,7 @@ export default function InterviewPage() {
     <main className="mx-auto max-w-3xl px-4 pb-8 pt-5 sm:px-8 sm:pt-8">
       <header className="sticky top-0 z-10 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-white pb-4 pt-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">模拟面试</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{state?.practice ? "同题重练" : "模拟面试"}</h1>
           {saved && <p className="mt-1 text-sm text-slate-600">{saved.input.track}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -276,7 +288,7 @@ export default function InterviewPage() {
               onChange={(event) => tts.changeAutoRead(event.currentTarget.checked)} />
             自动朗读
           </label>
-          {activeRound && <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900" aria-label={`第 ${activeRound.index} 题，共 4 题`}>第 {activeRound.index}/4 题</p>}
+          {activeRound && <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900" aria-label={`第 ${activeRound.index} 题，共 ${totalQuestions} 题`}>第 {activeRound.index}/{totalQuestions} 题</p>}
         </div>
       </header>
 
@@ -387,7 +399,7 @@ export default function InterviewPage() {
       {saved && state?.phase === "completed" && (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
           <p role="status" className="text-sm font-semibold">本次面试已结束</p>
-          <Button onClick={() => { if (save(saved)) router.push("/report"); }}>查看报告</Button>
+          <Button onClick={() => { if (save(saved)) router.push(`/report?id=${encodeURIComponent(state.session.id)}`); }}>查看报告</Button>
         </div>
       )}
     </main>

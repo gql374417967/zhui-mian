@@ -12,7 +12,10 @@ export type InterviewResult<T> = { format: "json"; value: T } | { format: "text"
 type Question = { type: "question" | "followup"; anchor: string; question: string };
 type InterviewerReply = Question | { type: "wrapup" };
 
+type Practice = { sourceId: string; questions: Pick<Round, "question" | "anchor">[] };
+
 type InterviewProgress = {
+  practice?: Practice;
   session: InterviewSession;
   track: TrackPreset;
   feedback: InterviewResult<Feedback>[];
@@ -23,6 +26,10 @@ export type InterviewState = InterviewProgress & (
   | { phase: "question" | "followup"; current: Question; unansweredStreak: number }
   | { phase: "completed"; report: InterviewResult<Report> }
 );
+
+export function interviewQuestionCount(progress?: InterviewProgress | null) {
+  return progress?.practice?.questions.length ?? questionCount;
+}
 
 export function createChatCompletion(endpoint = "/api/chat"): ChatCompletion {
   return async (messages) => {
@@ -348,6 +355,9 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
   async function nextQuestion(progress: InterviewProgress): Promise<InterviewState> {
     const { session, track } = progress;
     const index = session.rounds.length;
+    const original = progress.practice?.questions[index];
+    if (original) return openQuestion(progress, { type: "question", ...original });
+
     const result = await requestResult(complete,
       `${renderInterviewerPrompt(track)}\n现在只生成一道新的主问题，type 必须为 question。anchor 必须逐字引用 projectText，避免使用已问过的锚点。只选一个最值得深挖的缺口，question 只写一句问句。`,
       { projectText: session.input.projectText, jdText: session.input.jdText, questionNumber: index + 1, previousQuestions: session.rounds.map(({ anchor, question }) => ({ anchor, question })) },
@@ -361,16 +371,21 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
       const fallback = `${focus ? `从${focus}的角度看，` : ""}${questionFocus[index]}`;
       current = { type: "question", anchor, question: `你写到「${anchor}」。${fallback}` };
     }
-    const round: Round = { index: index + 1, question: current.question, anchor: current.anchor, answer: "", followups: [] };
+    return openQuestion(progress, current);
+  }
+
+  function openQuestion(progress: InterviewProgress, current: Question): InterviewState {
+    const { session } = progress;
+    const round: Round = { index: session.rounds.length + 1, question: current.question, anchor: current.anchor, answer: "", followups: [] };
     return { ...progress, session: { ...session, rounds: [...session.rounds, round] }, phase: "question", current, unansweredStreak: 0 };
   }
 
-  async function start(input: ProjectInput, track: TrackPreset): Promise<InterviewState> {
+  async function start(input: ProjectInput, track: TrackPreset, practice?: Practice): Promise<InterviewState> {
     if (!input.projectText.trim()) throw new Error("请先输入项目经历。");
     const session: InterviewSession = {
       id: globalThis.crypto.randomUUID(), input, rounds: [], status: "in_progress", startedAt: new Date().toISOString(),
     };
-    return nextQuestion({ session, track, feedback: [] });
+    return nextQuestion({ session, track, feedback: [], practice });
   }
 
   async function submitAnswer(state: InterviewState, response: string): Promise<InterviewState> {
@@ -406,7 +421,7 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
       } else if (result.value.type === "followup") {
         current = result.value;
       }
-      if (current) return { session: updatedSession, track, feedback: state.feedback, phase: "followup", current, unansweredStreak };
+      if (current) return { ...state, session: updatedSession, phase: "followup", current, unansweredStreak };
     }
 
     return finishRound({ ...state, session: updatedSession }, unansweredStreak >= 2 ? unansweredHint : undefined);
@@ -427,8 +442,9 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
       : { format: "text", text: "本题已跳过。" };
     const scoredRound = graded.format === "json" ? { ...round, feedback: graded.value } : round;
     return {
+      ...progress,
       session: { ...session, rounds: [...session.rounds.slice(0, -1), scoredRound] },
-      track, feedback: [...feedback, graded], hint,
+      feedback: [...feedback, graded], hint,
     };
   }
 
@@ -449,7 +465,7 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
 
   async function finishRound(progress: InterviewProgress, hint?: string): Promise<InterviewState> {
     const graded = await gradeRound(progress, hint);
-    return graded.session.rounds.length < questionCount ? nextQuestion(graded) : completeInterview(graded);
+    return graded.session.rounds.length < interviewQuestionCount(graded) ? nextQuestion(graded) : completeInterview(graded);
   }
 
   function preserveUnansweredFollowup(state: InterviewState): InterviewProgress {
@@ -461,14 +477,17 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
   }
 
   async function skipQuestion(state: InterviewState): Promise<InterviewState> {
-    return state.phase === "completed" ? state : finishRound(preserveUnansweredFollowup(state));
+    if (state.phase === "completed") return state;
+    const progress = preserveUnansweredFollowup(state);
+    const { session } = progress;
+    const round = { ...session.rounds[session.rounds.length - 1], skipped: true };
+    return finishRound({ ...progress, session: { ...session, rounds: [...session.rounds.slice(0, -1), round] } });
   }
 
   async function endInterview(state: InterviewState): Promise<InterviewState> {
     if (state.phase === "completed") return state;
-    const { session, track, feedback } = preserveUnansweredFollowup(state);
-    const activeRound = session.rounds[session.rounds.length - 1];
-    const progress = { session, track, feedback };
+    const progress = preserveUnansweredFollowup(state);
+    const activeRound = progress.session.rounds[progress.session.rounds.length - 1];
     return completeInterview(hasAnswer(activeRound) ? await gradeRound(progress) : progress);
   }
 

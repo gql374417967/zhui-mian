@@ -5,6 +5,11 @@ export interface ProjectInput {
   source: "paste" | "resume" | "demo";
 }
 
+export interface ProjectRewrite {
+  rewrite: string;
+  notes: string[];
+}
+
 export interface Feedback {
   score: number;
   star: {
@@ -25,6 +30,7 @@ export interface Round {
   answer: string;
   followups: { question: string; answer: string }[];
   feedback?: Feedback;
+  skipped?: boolean;
 }
 
 export interface InterviewSession {
