@@ -16,7 +16,7 @@ export default function HomePage() {
             从你的项目经历出发，练习面试里的层层追问，把你的贡献、决策和结果讲清楚。
           </p>
           <Button asChild className="mt-6 w-full sm:w-auto">
-            <Link href="/interview">
+            <Link href="/interview?demo=1">
               <Sparkles size={16} aria-hidden="true" />
               用示例项目 30 秒体验
               <ArrowRight size={16} aria-hidden="true" />

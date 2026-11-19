@@ -4,13 +4,15 @@ import { ArrowRight, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { interviewInputKey } from "@/lib/interview-storage";
+import type { ProjectInput } from "@/lib/types";
 
 const tracks = ["后端开发", "前端开发", "算法", "产品", "运营", "数据", "通用"];
 const fieldClassName = "w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
 export function ProjectForm() {
   const router = useRouter();
-  const [showUploadNotice, setShowUploadNotice] = useState(false);
+  const [notice, setNotice] = useState("");
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -20,7 +22,18 @@ export function ProjectForm() {
       experience.reportValidity();
       return;
     }
-    router.push("/interview");
+    const input: ProjectInput = {
+      projectText: experience.value.trim(),
+      track: String(new FormData(event.currentTarget).get("track")),
+      source: "paste",
+    };
+    try {
+      localStorage.setItem(interviewInputKey, JSON.stringify(input));
+    } catch {
+      setNotice("浏览器无法保存项目经历，请允许此站点使用本地存储后重试。");
+      return;
+    }
+    router.push("/interview?start=1");
   }
 
   return (
@@ -46,7 +59,7 @@ export function ProjectForm() {
         </label>
       </div>
       <div className="mt-5 grid gap-2 min-[390px]:grid-cols-2">
-        <Button type="button" variant="outline" onClick={() => setShowUploadNotice(true)}>
+        <Button type="button" variant="outline" onClick={() => setNotice("简历上传将在后续开放。现在可以粘贴项目经历。")}>
           <Upload size={16} aria-hidden="true" />
           上传简历
         </Button>
@@ -56,7 +69,7 @@ export function ProjectForm() {
         </Button>
       </div>
       <div role="status" className="text-sm leading-6 text-slate-600">
-        {showUploadNotice && <p className="mt-3">简历上传将在后续开放。现在可以粘贴项目经历。</p>}
+        {notice && <p className="mt-3">{notice}</p>}
       </div>
     </form>
   );
