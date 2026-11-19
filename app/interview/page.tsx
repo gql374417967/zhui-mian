@@ -1,7 +1,8 @@
 "use client";
 
-import { Bot, ClipboardCheck, Mic, Send, Square } from "lucide-react";
+import { Bot, ClipboardCheck, Mic, Send, Square, Volume2 } from "lucide-react";
 import { useVoiceInput } from "@/lib/use-voice-input";
+import { useQuestionTts } from "@/lib/use-question-tts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -47,20 +48,31 @@ function QuestionText({ text, animate }: { text: string; animate: boolean }) {
   );
 }
 
-function QuestionCard({ question, anchor, followup, animate }: {
+function questionId(sessionId: string, round: number, followup = 0) {
+  return `${sessionId}:${round}:${followup}`;
+}
+
+function QuestionCard({ question, anchor, followup, animate, read }: {
   question: string;
   anchor?: string;
   followup?: number;
   animate: boolean;
+  read: { active: boolean; disabled: boolean; onClick: () => void } | null;
 }) {
   return (
     <article className={cn("min-w-0 rounded-xl border p-4 sm:p-5", followup
       ? "ml-3 border-violet-200 border-l-4 bg-violet-50 sm:ml-7"
       : "border-blue-200 bg-blue-50")}>
-      <h3 className={cn("flex items-center gap-2 text-sm font-semibold", followup ? "text-violet-800" : "text-blue-800")}>
-        <Bot size={17} aria-hidden="true" />
-        {followup ? `追问 ${followup}` : "面试官提问"}
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className={cn("flex items-center gap-2 text-sm font-semibold", followup ? "text-violet-800" : "text-blue-800")}>
+          <Bot size={17} aria-hidden="true" />
+          {followup ? `追问 ${followup}` : "面试官提问"}
+        </h3>
+        {read && <Button type="button" variant="outline" className="px-3" disabled={read.disabled} onClick={read.onClick}>
+          {read.active ? <Square size={15} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
+          {read.active ? "停止朗读" : "朗读"}
+        </Button>}
+      </div>
       {anchor && (
         <blockquote className="mt-3 break-words rounded-md border-l-2 border-blue-500 bg-white px-3 py-2 text-sm leading-6 text-blue-950">
           面试官抓住了这句：<mark className="bg-blue-100 text-inherit">{anchor}</mark>
@@ -133,6 +145,7 @@ export default function InterviewPage() {
   const inFlight = useRef(false);
   const latest = useRef<HTMLDivElement>(null);
   const latestSaved = useRef<SavedInterview | null>(null);
+  const tts = useQuestionTts();
   const voice = useVoiceInput((text) => {
     const snapshot = latestSaved.current;
     if (!snapshot || !mounted.current || inFlight.current) return;
@@ -156,6 +169,7 @@ export default function InterviewPage() {
   async function run(label: string, operation: () => Promise<InterviewState>, snapshot: SavedInterview, openReport = false) {
     if (inFlight.current) return;
     inFlight.current = true;
+    tts.stop();
     voice.cancel();
     setBusy(label);
     setError("");
@@ -165,6 +179,15 @@ export default function InterviewPage() {
       setAnimate(true);
       const persisted = save({ ...snapshot, state, draft: "" });
       if (openReport && persisted) router.push("/report");
+      const round = state.session.rounds.at(-1);
+      if (round && state.phase !== "completed" && !voice.isCapturing() && document.visibilityState !== "hidden") {
+        const previous = snapshot.state;
+        const previousRound = previous?.session.rounds.at(-1);
+        const id = questionId(state.session.id, round.index, state.phase === "followup" ? round.followups.length + 1 : 0);
+        const previousId = previous && previousRound && questionId(previous.session.id, previousRound.index,
+          previous.phase === "followup" ? previousRound.followups.length + 1 : 0);
+        if (id !== previousId) void tts.play(id, state.current.question, true);
+      }
     } catch {
       if (mounted.current) setError("操作未完成，请重试。已提交的进度和当前草稿仍在此页。");
     } finally {
@@ -223,6 +246,20 @@ export default function InterviewPage() {
   }
 
   const recording = voice.phase === "recording";
+
+  function questionRead(id: string, text: string) {
+    if (tts.unavailable.has(id)) return null;
+    return {
+      active: tts.activeId === id,
+      disabled: Boolean(busy) || voice.waitingForPermission || recording,
+      onClick: () => {
+        if (inFlight.current || voice.isCapturing()) return;
+        if (tts.activeId === id) tts.stop();
+        else void tts.play(id, text);
+      },
+    };
+  }
+
   const voiceStatus = voice.phase === "permission" ? "等待麦克风授权…"
     : recording ? "正在录音" : voice.phase === "transcribing" ? "正在转写…" : voice.notice;
 
@@ -233,7 +270,14 @@ export default function InterviewPage() {
           <h1 className="text-2xl font-bold tracking-tight">模拟面试</h1>
           {saved && <p className="mt-1 text-sm text-slate-600">{saved.input.track}</p>}
         </div>
-        {activeRound && <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900" aria-label={`第 ${activeRound.index} 题，共 4 题`}>第 {activeRound.index}/4 题</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
+            <input type="checkbox" role="switch" className="size-4 accent-primary" checked={tts.autoRead}
+              onChange={(event) => tts.changeAutoRead(event.currentTarget.checked)} />
+            自动朗读
+          </label>
+          {activeRound && <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900" aria-label={`第 ${activeRound.index} 题，共 4 题`}>第 {activeRound.index}/4 题</p>}
+        </div>
       </header>
 
       {!ready && <p role="status" className="text-sm text-slate-600">正在读取面试进度…</p>}
@@ -257,16 +301,19 @@ export default function InterviewPage() {
             const feedback = state.feedback[round.index - 1];
             return (
               <li key={`${state.session.id}-${round.index}`} className="min-w-0 space-y-3" aria-label={`第 ${round.index} 题`}>
-                <QuestionCard question={round.question} anchor={round.anchor} animate={animate && current?.phase === "question"} />
+                <QuestionCard question={round.question} anchor={round.anchor} animate={animate && current?.phase === "question"}
+                  read={questionRead(questionId(state.session.id, round.index), round.question)} />
                 {round.answer && <AnswerCard answer={round.answer} />}
                 {round.followups.map(({ question, answer }, index) => (
                   <div key={index} className="space-y-3">
-                    <QuestionCard question={question} followup={index + 1} animate={false} />
+                    <QuestionCard question={question} followup={index + 1} animate={false}
+                      read={questionRead(questionId(state.session.id, round.index, index + 1), question)} />
                     {answer && <AnswerCard answer={answer} />}
                   </div>
                 ))}
                 {current?.phase === "followup" && (
-                  <QuestionCard key={round.followups.length} question={current.current.question} followup={round.followups.length + 1} animate={animate} />
+                  <QuestionCard key={round.followups.length} question={current.current.question} followup={round.followups.length + 1} animate={animate}
+                    read={questionRead(questionId(state.session.id, round.index, round.followups.length + 1), current.current.question)} />
                 )}
                 {feedback && <FeedbackCard result={feedback} index={round.index} />}
               </li>
@@ -304,7 +351,13 @@ export default function InterviewPage() {
           <div className="mt-3 flex flex-wrap justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" disabled={Boolean(busy) || (!recording && (voice.phase !== "idle" || !voice.canStart))}
-                onClick={() => recording ? voice.stop() : void voice.start()}>
+                onClick={() => {
+                  if (recording) voice.stop();
+                  else {
+                    tts.stop();
+                    void voice.start();
+                  }
+                }}>
                 {recording ? <Square size={16} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}
                 {recording ? "停止并转写" : "开始录音"}
               </Button>

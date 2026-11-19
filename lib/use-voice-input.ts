@@ -198,5 +198,9 @@ export function useVoiceInput(onText: (text: string) => void) {
       : "当前浏览器不支持可用的录音格式，请继续打字。")
     : "";
 
-  return { phase, seconds, level, error, notice, unavailable, canStart: supported === true && !waitingForPermission, start, stop, cancel };
+  function isCapturing() {
+    return pendingPermission.current || current.current?.recorder?.state === "recording";
+  }
+
+  return { phase, seconds, level, error, notice, unavailable, waitingForPermission, isCapturing, canStart: supported === true && !waitingForPermission, start, stop, cancel };
 }
