@@ -1,6 +1,7 @@
 "use client";
 
-import { Bot, ClipboardCheck, Mic, Send } from "lucide-react";
+import { Bot, ClipboardCheck, Mic, Send, Square } from "lucide-react";
+import { useVoiceInput } from "@/lib/use-voice-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -131,8 +132,16 @@ export default function InterviewPage() {
   const initialized = useRef(false);
   const inFlight = useRef(false);
   const latest = useRef<HTMLDivElement>(null);
+  const latestSaved = useRef<SavedInterview | null>(null);
+  const voice = useVoiceInput((text) => {
+    const snapshot = latestSaved.current;
+    if (!snapshot || !mounted.current || inFlight.current) return;
+    const separator = snapshot.draft && !snapshot.draft.endsWith("\n") ? "\n" : "";
+    save({ ...snapshot, draft: snapshot.draft + separator + text });
+  });
 
   function save(next: SavedInterview) {
+    latestSaved.current = next;
     setSaved(next);
     try {
       localStorage.setItem(interviewSessionKey, JSON.stringify(next));
@@ -147,6 +156,7 @@ export default function InterviewPage() {
   async function run(label: string, operation: () => Promise<InterviewState>, snapshot: SavedInterview, openReport = false) {
     if (inFlight.current) return;
     inFlight.current = true;
+    voice.cancel();
     setBusy(label);
     setError("");
     try {
@@ -187,6 +197,7 @@ export default function InterviewPage() {
         start(snapshot);
       } else if (stored && isProjectInput(stored.input) && typeof stored.draft === "string" &&
         (stored.state === null || (stored.state?.session?.rounds?.length && Array.isArray(stored.state.feedback)))) {
+        latestSaved.current = stored;
         setSaved(stored);
         if (!stored.state) start(stored);
       }
@@ -206,9 +217,14 @@ export default function InterviewPage() {
 
   function sendAnswer(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (!active || !saved?.draft.trim() || inFlight.current) return;
-    void run("面试官正在处理回答…", () => engine.submitAnswer(active, saved.draft), saved);
+    const snapshot = latestSaved.current;
+    if (!active || !snapshot?.draft.trim() || inFlight.current) return;
+    void run("面试官正在处理回答…", () => engine.submitAnswer(active, snapshot.draft), snapshot);
   }
+
+  const recording = voice.phase === "recording";
+  const voiceStatus = voice.phase === "permission" ? "等待麦克风授权…"
+    : recording ? "正在录音" : voice.phase === "transcribing" ? "正在转写…" : voice.notice;
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-8 pt-5 sm:px-8 sm:pt-8">
@@ -272,7 +288,7 @@ export default function InterviewPage() {
             id="interview-answer"
             value={saved.draft}
             readOnly={Boolean(busy)}
-            onChange={(event) => save({ ...saved, draft: event.currentTarget.value })}
+            onChange={(event) => save({ ...(latestSaved.current ?? saved), draft: event.currentTarget.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault();
@@ -287,15 +303,31 @@ export default function InterviewPage() {
           <p id="answer-shortcuts" className="mt-2 text-xs text-slate-600">Enter 发送 · Shift+Enter 换行</p>
           <div className="mt-3 flex flex-wrap justify-between gap-2">
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" disabled title="语音输入将在后续开放" aria-label="语音输入暂未开放" className="px-3">
-                <Mic size={17} aria-hidden="true" />
+              <Button type="button" variant="outline" disabled={Boolean(busy) || (!recording && (voice.phase !== "idle" || !voice.canStart))}
+                onClick={() => recording ? voice.stop() : void voice.start()}>
+                {recording ? <Square size={16} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}
+                {recording ? "停止并转写" : "开始录音"}
               </Button>
-              <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void run("正在跳到下一题…", () => engine.skipQuestion(active), saved)}>跳过此题</Button>
+              {voice.phase !== "idle" && <Button type="button" variant="outline" onClick={voice.cancel}>
+                {voice.phase === "transcribing" ? "取消转写" : "取消录音"}
+              </Button>}
+              <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void run("正在跳到下一题…", () => engine.skipQuestion(active), latestSaved.current ?? saved)}>跳过此题</Button>
             </div>
             <Button type="submit" disabled={Boolean(busy) || !saved.draft.trim()}><Send size={16} aria-hidden="true" /> 发送</Button>
           </div>
+          {voiceStatus && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <p role="status">{voiceStatus}</p>
+            {recording && <>
+              <span role="timer" className="tabular-nums">{voice.seconds} / 60 秒</span>
+              <span aria-hidden="true" className="h-2 w-12 overflow-hidden rounded-full bg-slate-200">
+                <span className="block h-full origin-left rounded-full bg-red-600 motion-safe:transition-transform" style={{ transform: `scaleX(${Math.max(0.08, voice.level)})` }} />
+              </span>
+            </>}
+          </div>}
+          {voice.error && <p role="alert" className="mt-2 text-sm leading-6 text-red-800">{voice.error}</p>}
+          {voice.unavailable && <p className="mt-2 text-sm leading-6 text-slate-600">{voice.unavailable}</p>}
           <div className="mt-3 border-t border-border pt-3">
-            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void run("正在生成复盘…", () => engine.endInterview(active), saved, true)}>结束并看报告</Button>
+            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void run("正在生成复盘…", () => engine.endInterview(active), latestSaved.current ?? saved, true)}>结束并看报告</Button>
           </div>
         </form>
       )}
