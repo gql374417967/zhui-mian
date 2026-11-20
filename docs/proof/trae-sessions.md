@@ -13,6 +13,7 @@
 | Step 6 问题朗读 | 2026-11-19 | `6afee5f8688eb37b5ca38666` | 主问题与追问支持手动朗读、自动朗读及停止，接入硅基流动 TTS 和浏览器中文语音 | 真实 MP3、Chrome 播放进度、自动播放恢复、录音互斥、旧请求拦截及 390px 布局通过。扬声器未人工听验。 |
 | Step 7 复盘报告 | 2026-11-19 | `6afefc29688eb37b5ca387ce` | 按面试 ID 保存报告、七天计划、项目经历改写、PNG 长图、原题重练 | 独立验收通过真实改写、旧报告读取、计划恢复、双题重练、原报告保留、桌面及 390px 长图与生产构建。 |
 | Step 8 简历上传解析 | 2026-11-20 | `6aff080c688eb37b5ca3895d` | 上传 PDF/DOCX 提取候选项目、勾选编辑回填、扫描件与损坏文件降级、5 MB 及 multipart 上限、面向简历原文的提示词 | 独立验证通过合成 PDF 真实提取（正文逐字来自原文）、扫描件 422、损坏 415、伪造 DOCX 422、超限 413、编辑后进入面试并正确锚定、390px 布局。DOCX 完整流程待复验。 |
+| Step 10 Supabase 账号与历史 | 2026-11-21 | 见备注（修复在原会话完成） | 匿名登录、interviews 表与 RLS、自动上云、/history 列表、邮箱升级归属、删除数据、本地兜底 | 独立验收通过：真实匿名上云（数秒内落库）、/history、RLS 隔离（服务端 SQL 复核）、升级邮箱（UID 稳定、is_anonymous 转正）、删除（云端 0 行、B 不受影响）、断网降级与恢复补传。 |
 
 ## 会话截图
 （手动用 Win+Shift+S 截 TRAE 对话窗口，命名如 `screenshot-step1.png` 放本目录）
@@ -95,3 +96,5 @@
 
 ## 待办备忘
 - [ ] favicon 404（Step 12 打磨时让 TRAE 补站点图标）
+- [x] Step 10 jd_text 列名 bug：已由 TRAE 修复（toRow 改用 jd_analysis、upsert 失败留 console.warn），独立复验通过。
+- [x] Step 10 独立全链路复验（隔离生产预览 3041，修复后构建）：匿名登录与上云（面试结束后数秒内落库）、/history 列表、RLS 隔离（B 直查看不到 A，服务端 SQL 复核）、升级邮箱（UID 稳定、is_anonymous 转正、数据归属）、删除（本地清空 + 服务端复核云端 0 行）、B 不受影响。断网降级与未登录历史采用 TRAE 的浏览器截图佐证（断网复盘降级、未登录历史、模拟云端失败时历史可用）。另发现并修复验收环境问题：Supabase 密钥文件（.supabase-keys.json 含 service_role、.supabase-db-pass.local、.supabase-project-ref.local）已补进 .gitignore。测试残留数据已从云端清理。

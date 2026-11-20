@@ -4,7 +4,7 @@ import { ArrowRight, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { interviewInputKey } from "@/lib/interview-storage";
+import { interviewInputKey, writeInterviewStorage } from "@/lib/interview-storage";
 import { getTrackPreset, maxJdLength, trackPresets } from "@/lib/presets";
 import type { JdAnalysis, ProjectInput, ResumeExtraction, ResumeProject } from "@/lib/types";
 
@@ -127,7 +127,7 @@ export function ProjectForm() {
       source,
     };
     try {
-      localStorage.setItem(interviewInputKey, JSON.stringify(input));
+      writeInterviewStorage(interviewInputKey, input);
     } catch {
       setNotice("浏览器无法保存项目经历，请允许此站点使用本地存储后重试。");
       return;

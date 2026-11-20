@@ -3,16 +3,20 @@
 import { MessagesSquare } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { startInterviewSync } from "@/lib/interview-sync";
 import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/interview", label: "模拟面试" },
   { href: "/report", label: "复盘报告" },
   { href: "/history", label: "历史记录" },
+  { href: "/settings", label: "设置" },
 ];
 
 export function SiteHeader() {
   const pathname = usePathname();
+  useEffect(startInterviewSync, []);
 
   return (
     <header className="border-b border-border">
@@ -23,7 +27,7 @@ export function SiteHeader() {
           </span>
           追面
         </Link>
-        <nav aria-label="主导航" className="flex gap-1 sm:gap-3">
+        <nav aria-label="主导航" className="flex flex-wrap gap-1 sm:gap-3">
           {links.map(({ href, label }) => (
             <Link
               key={href}

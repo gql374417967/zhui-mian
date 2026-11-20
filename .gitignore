@@ -6,3 +6,7 @@ out/
 !/.env.example
 *.tsbuildinfo
 next-env.d.ts
+
+.supabase-db-pass.local
+.supabase-project-ref.local
+.supabase-keys.json

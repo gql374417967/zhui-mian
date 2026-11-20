@@ -6,11 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
-import { createInterviewEngine, type InterviewResult } from "@/lib/engine";
-import {
-  archiveCompletedInterview, hasSubmittedAnswer, planStorageKey, practiceStorageKey,
-  readCompletedInterview, readInterviewStorage, saveInterview,
-} from "@/lib/interview-storage";
+import type { InterviewResult } from "@/lib/engine";
+import { practiceQuestions, preparePractice } from "@/lib/interview-practice";
+import { hasSubmittedAnswer, readCompletedInterview, readPlan, savePlan, storageEvent } from "@/lib/interview-storage";
+import { pullInterviews } from "@/lib/interview-sync";
 import type { Feedback, ProjectRewrite, Report, Round } from "@/lib/types";
 
 const card = "min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6";
@@ -90,16 +89,17 @@ function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof
   const { session, feedback, report, practice } = interview;
   const { id, input } = session;
   const answered = session.rounds.filter(hasSubmittedAnswer);
-  const weakest = answered.flatMap((round) => {
-    const grade = feedback[round.index - 1];
-    const score = grade?.format === "json" ? grade.value.score : round.feedback?.score;
-    return !round.skipped && typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 10 &&
-      round.question.trim() && round.anchor.trim() && input.projectText.includes(round.anchor) ? [{ round, score }] : [];
-  }).sort((a, b) => a.score - b.score || a.round.index - b.round.index).slice(0, 2);
-  const [checked, setChecked] = useState<number[]>(() => {
-    const saved = readInterviewStorage<unknown>(planStorageKey(id));
-    return Array.isArray(saved) ? saved.filter((day) => Number.isInteger(day) && day >= 1 && day <= 7) : [];
-  });
+  const weakest = practiceQuestions(interview);
+  const [checked, setChecked] = useState(() => readPlan(id));
+  useEffect(() => {
+    const update = () => setChecked(readPlan(id));
+    window.addEventListener(storageEvent, update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener(storageEvent, update);
+      window.removeEventListener("storage", update);
+    };
+  }, [id]);
   const [planError, setPlanError] = useState("");
   const [rewrite, setRewrite] = useState<ProjectRewrite>();
   const [rewriteBusy, setRewriteBusy] = useState(false);
@@ -114,7 +114,7 @@ function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof
     const next = selected ? [...checked, day] : checked.filter((entry) => entry !== day);
     setChecked(next);
     try {
-      localStorage.setItem(planStorageKey(id), JSON.stringify(next));
+      savePlan(id, next);
       setPlanError("");
     } catch {
       setPlanError("浏览器无法保存计划进度，刷新后可能丢失本次变更。");
@@ -180,13 +180,8 @@ function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof
     setPracticeBusy(true);
     setPracticeError("");
     try {
-      archiveCompletedInterview(interview);
-      const state = await createInterviewEngine().start(input, interview.track, {
-        sourceId: id,
-        questions: weakest.map(({ round: { question, anchor } }) => ({ question, anchor })),
-      });
-      saveInterview({ input, state, draft: "" }, practiceStorageKey(state.session.id));
-      router.push(`/interview?practice=${encodeURIComponent(state.session.id)}`);
+      const path = await preparePractice(interview);
+      if (path) router.push(path);
     } catch {
       setPracticeError("无法保存重练会话，请重试。");
       setPracticeBusy(false);
@@ -263,9 +258,26 @@ function ReportLoader() {
   const id = useSearchParams().get("id") ?? undefined;
   const [loaded, setLoaded] = useState<{ id?: string; interview: ReturnType<typeof readCompletedInterview> }>();
   useEffect(() => {
-    const interview = readCompletedInterview(id);
-    setLoaded({ id, interview });
-    if (!interview) router.replace("/");
+    let active = true;
+    const read = () => {
+      const interview = readCompletedInterview(id);
+      if (active) setLoaded({ id, interview });
+      return interview;
+    };
+    const initial = read();
+    window.addEventListener(storageEvent, read);
+    window.addEventListener("storage", read);
+    const timeout = window.setTimeout(() => { if (active && !read()) router.replace("/"); }, 7000);
+    void pullInterviews(id, !id).finally(() => {
+      window.clearTimeout(timeout);
+      if (active && !read() && !initial) router.replace("/");
+    });
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      window.removeEventListener(storageEvent, read);
+      window.removeEventListener("storage", read);
+    };
   }, [id, router]);
   return loaded && loaded.id === id && loaded.interview
     ? <ReportContent key={loaded.interview.session.id} interview={loaded.interview} />

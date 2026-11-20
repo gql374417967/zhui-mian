@@ -239,6 +239,10 @@ export default function InterviewPage() {
   }, []);
 
   const state = saved?.state;
+  const sessionId = state?.session.id;
+  useEffect(() => {
+    if (sessionId) router.prefetch(`/report?id=${encodeURIComponent(sessionId)}`);
+  }, [router, sessionId]);
   useEffect(() => {
     if (state) latest.current?.scrollIntoView({ block: "nearest" });
   }, [state, busy]);
