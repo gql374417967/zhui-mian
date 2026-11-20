@@ -12,6 +12,7 @@
 | Step 5 语音输入 | 2026-11-19 | `6afecfe9688eb37b5ca3854c` | 面试页接入浏览器录音和硅基流动语音转写，支持计时、取消、草稿回填和手动发送 | 独立验证通过 Windows Chrome 虚拟麦克风录音、WebM 真实转写及 390px 页面交互，MP4 单独通过真实接口转写。实体麦克风口述待实测。 |
 | Step 6 问题朗读 | 2026-11-19 | `6afee5f8688eb37b5ca38666` | 主问题与追问支持手动朗读、自动朗读及停止，接入硅基流动 TTS 和浏览器中文语音 | 真实 MP3、Chrome 播放进度、自动播放恢复、录音互斥、旧请求拦截及 390px 布局通过。扬声器未人工听验。 |
 | Step 7 复盘报告 | 2026-11-19 | `6afefc29688eb37b5ca387ce` | 按面试 ID 保存报告、七天计划、项目经历改写、PNG 长图、原题重练 | 独立验收通过真实改写、旧报告读取、计划恢复、双题重练、原报告保留、桌面及 390px 长图与生产构建。 |
+| Step 8 简历上传解析 | 2026-11-20 | `6aff080c688eb37b5ca3895d` | 上传 PDF/DOCX 提取候选项目、勾选编辑回填、扫描件与损坏文件降级、5 MB 及 multipart 上限、面向简历原文的提示词 | 独立验证通过合成 PDF 真实提取（正文逐字来自原文）、扫描件 422、损坏 415、伪造 DOCX 422、超限 413、编辑后进入面试并正确锚定、390px 布局。DOCX 完整流程待复验。 |
 
 ## 会话截图
 （手动用 Win+Shift+S 截 TRAE 对话窗口，命名如 `screenshot-step1.png` 放本目录）
@@ -65,6 +66,17 @@
 - Step 7 独立复验。使用 Chrome 的隔离浏览器环境预置一份旧版完成报告，并用固定模型应答验证重练。旧报告能打开，七天计划勾选刷新恢复；重练按 0 分、4 分选择原题，`1/2` 草稿刷新后保留，`2/2` 完成并生成不同 ID 的[重练报告](<step7-independent-practice-report.png>)，返回[原报告](<step7-independent-returned.png>)后仍可读且进度保留。无浏览器页面异常或控制台报错。
 - 独立从页面下载并打开[390px 长图 732 × 7260](<step7-independent-export-390.png>)和[桌面长图 1952 × 5980](<step7-independent-export-desktop.png>)，标题、雷达标签和底部自检清单可读。另检查 TRAE 的实测导出图，较长中文内容和五项自检也完整。
 - 真实改写接口独立返回 HTTP 200、四段 STAR、待补充项和三条理由，事实段落可在原文定位。已复现职责和背景同句被归到情境，任务栏因此有待补充提示，原职责仍完整保留。TypeScript、14 项引擎回归、隔离生产构建通过。单题重练、全跳过、提前结束和纯文本复盘由 TRAE 的浏览器验收覆盖。Git 待提交。
+
+## Step 8 简历上传解析
+
+- 关键对话摘要。先按开发手册列出拟改文件、解析库和失败处理，再按「按计划执行」开始实现。用户追加了 multipart 读取上限、DOCX 解包和模型输入上限，以及旧上传响应晚到时保留最新候选的验收要求。改动留在工作区，待独立验收后再提交 Git。当前会话 Session ID 尚未核实。
+- 生产预览为 `http://localhost:3008/`。合成 PDF 和 DOCX 均通过真实模型提取出两个项目。在浏览器取消勾选其中一项，修改保留项的名称和正文，确认替换后进入面试。两次浏览器面试输入均为 `source: "resume"`，首题锚点分别为 `I used Redis to prevent duplicate reservations` 和 `使用 Redis 防止重复预约`，在原候选正文中逐字核对通过。[PDF 候选](<step8-pdf-candidates.png>)、[PDF 首题](<step8-pdf-interview.png>)、[390px DOCX 候选](<step8-docx-candidates.png>)、[390px DOCX 首题](<step8-docx-interview.png>)。
+- 纯扫描件返回粘贴文字版提示。浏览器验证损坏、格式不符、前端超限、DOCX 解包超限、文字超限均保留草稿。模拟 HTTP 502 后重选同一份 PDF，真实接口成功。乱序测试让旧 PDF 响应在新 DOCX 后实际送达浏览器，新候选保持显示，确认前草稿未被改动。390px 页面无横向溢出。[扫描件](<step8-scan-390.png>)、[乱序响应](<step8-latest-upload-390.png>)。
+- 生产构建成功，既有 14 项回归全部通过。额外接口测试确认恰好 5 MiB 通过文件大小检查，多 1 字节触发单文件限制。无 Content-Length 的分块请求在 multipart 结束边界抵达前已返回 HTTP 413。浏览器断言全部通过，TRAE 另报告拦截浏览器和输入法在工作区外的系统写入。
+
+- Step 8 TRAE 会话截图已归档：[生产验收](<screenshot-step8-生产验收.png>)、[计划确认](<screenshot-step8-计划确认.png>)、[失败处理](<screenshot-step8-失败处理.png>)、[验收交付](<screenshot-step8-验收交付.png>)。Session ID `6aff080c688eb37b5ca3895d` 已复核。
+- Step 8 独立复验。使用合成英文 PDF（两个项目）直传生产预览 `/api/parse-resume`，真实模型返回两个候选项目；项目正文和 highlights 逐字或截断自原文。我用编辑后的正文进入面试，面试官正确锚定编辑后的原句。扫描件返回 422「未提取到简历文字」，损坏 PDF 返回 415，伪造 DOCX 返回 422，超过 5 MB 返回 413。390px 布局：候选项目勾选、编辑、确认替换和面试页均正常。
+- Step 8 独立截图：[候选项目](<step8-independent-candidates.png>)、[确认回填](<step8-independent-filled.png>)、[面试首题](<step8-independent-interview.png>)、[扫描件降级](<step8-independent-scan-390.png>)、[重试后回填](<step8-independent-resume-filled.png>)。测试用合成简历 PDF 已存 proof。TypeScript、隔离生产构建和 14 项回归通过。DOCX 完整流程依赖 TRAE 实测，未单独复验。
 
 ## 备注
 - `app/api-test/page.tsx` 为临时调试页（验证 /api/chat 用，非 TRAE 生成，验收后可在 Step 12 删除）

@@ -5,6 +5,16 @@ export interface ProjectInput {
   source: "paste" | "resume" | "demo";
 }
 
+export interface ResumeProject {
+  name: string;
+  text: string;
+  highlights: string[];
+}
+
+export interface ResumeExtraction {
+  projects: ResumeProject[];
+}
+
 export interface ProjectRewrite {
   rewrite: string;
   notes: string[];
