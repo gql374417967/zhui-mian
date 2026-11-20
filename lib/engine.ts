@@ -1,4 +1,4 @@
-import { feedbackPrompt, renderInterviewerPrompt, reportPrompt } from "./prompts";
+import { feedbackPrompt, jdInterviewPriority, renderInterviewerPrompt, reportPrompt } from "./prompts";
 import type { Feedback, InterviewSession, ProjectInput, Report, Round, TrackPreset } from "./types";
 
 const questionCount = 4;
@@ -276,6 +276,24 @@ function validateResultPremise(question: string, evidence: string[]): string | u
   }
 }
 
+const abTest = /(?:A\s*[/／-]?\s*B\s*(?:实验|测试)|分流实验)/i;
+
+function hasExperimentEvidence(text: string) {
+  const statements = text.match(/[^。；！？!?\n]+[？?]?/g) ?? [];
+  return statements.some((sentence) => {
+    if (/[？?]$/.test(sentence) || /^\s*(?:如果|假如|假设|若)/.test(sentence)) return false;
+    return sentence.split(/[，,]/).some((clause) => {
+      if (!abTest.test(clause) || unconfirmedResult.test(clause)) return false;
+      const personalExecution = /^(?:后来|此前|当时)?\s*我(?:本人|自己|亲自|曾经|曾|当时|也|先|独立|在.{1,20}中)*(?:做过|做了|进行过|进行了|开展过|开展了|实施过|实施了|完成了|运行了|跑了|(?:负责|参与)(?:执行|运行|实施|开展))\s*(?:过|了)?\s*(?:一次|一轮|一项|该项?|本次|这个)?\s*/;
+      const action = clause.trim().match(personalExecution);
+      if (!action) return false;
+      const object = clause.trim().slice(action[0].length);
+      return object.search(abTest) === 0 &&
+        !/(?:实验|测试)\s*的?\s*(?:报告|结果|材料|总结)/.test(object);
+    });
+  });
+}
+
 function readQuestion(value: unknown, expected: "question" | "followup", session: InterviewSession, currentAnchor?: string): InterviewerReply | string {
   const reply = record(value);
   if (!reply) return "回复必须是 JSON 对象";
@@ -293,6 +311,17 @@ function readQuestion(value: unknown, expected: "question" | "followup", session
   const assumesOptimization = /(?:优化了|改进了|做了[^。！？!?]*(?:优化|改进))/;
   if (assumesOptimization.test(reply.question) && !evidence.some((text) => /优化|改进/.test(text))) {
     return "question 预设了候选人做过优化或改进，请改问实际做了什么";
+  }
+  const experimentDetails = /样本|指标|结果|效果|分组|分流|持续|时长|多久|多长时间/;
+  const pastExperiment = /当时|当初|之前|此前|上次|那次|已经做过/;
+  const assumesExperiment = /复盘|实验中|测试中|实验时|测试时|怎么做的|如何做的|做了|进行的|实施的/;
+  const hypotheticalExperiment = /如果|假如|假设|(?:会|可以|应该|打算|准备)(?:如何|怎么|怎样|用什么|选哪些)/;
+  const confirmsExperiment = /^(?:请问\s*)?(?:你(?:们)?\s*)?(?:(?:当时|当初|之前)\s*)?(?:是否\s*|有没有\s*)?(?:做|进行|开展|实施|完成)(?:过|了)?\s*(?:A\s*[/／-]?\s*B\s*(?:实验|测试)|分流实验)\s*(?:吗|没有)?[？?]?$/i;
+  if (abTest.test(reply.question) && !confirmsExperiment.test(reply.question.trim()) &&
+      (pastExperiment.test(reply.question) || (!hypotheticalExperiment.test(reply.question) &&
+        (experimentDetails.test(reply.question) || assumesExperiment.test(reply.question)))) &&
+      !evidence.some(hasExperimentEvidence)) {
+    return "question 预设了候选人做过 A/B 实验，请先确认是否做过，或用假设式询问会如何设计实验";
   }
   const resultError = validateResultPremise(reply.question, evidence);
   if (resultError) return resultError;
@@ -352,6 +381,11 @@ const followupAngles = [
 const unansweredHint = "可以先从你亲手做的一步说起，再补上你用来验证结果的证据。";
 
 export function createInterviewEngine(complete: ChatCompletion = createChatCompletion()) {
+  function questionPrompt(track: TrackPreset, input: ProjectInput) {
+    const prompt = renderInterviewerPrompt(track);
+    return input.jdAnalysis ? `${prompt}\n${jdInterviewPriority}` : prompt;
+  }
+
   async function nextQuestion(progress: InterviewProgress): Promise<InterviewState> {
     const { session, track } = progress;
     const index = session.rounds.length;
@@ -359,8 +393,8 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
     if (original) return openQuestion(progress, { type: "question", ...original });
 
     const result = await requestResult(complete,
-      `${renderInterviewerPrompt(track)}\n现在只生成一道新的主问题，type 必须为 question。anchor 必须逐字引用 projectText，避免使用已问过的锚点。只选一个最值得深挖的缺口，question 只写一句问句。`,
-      { projectText: session.input.projectText, jdText: session.input.jdText, questionNumber: index + 1, previousQuestions: session.rounds.map(({ anchor, question }) => ({ anchor, question })) },
+      `${questionPrompt(track, session.input)}\n现在只生成一道新的主问题，type 必须为 question。anchor 必须逐字引用 projectText，避免使用已问过的锚点。只选一个最值得深挖的缺口，question 只写一句问句。`,
+      { projectText: session.input.projectText, jdAnalysis: session.input.jdAnalysis, questionNumber: index + 1, previousQuestions: session.rounds.map(({ anchor, question }) => ({ anchor, question })) },
       (value) => readQuestion(value, "question", session), "", false);
     let current: Question;
     if (result.format === "json" && result.value.type === "question") {
@@ -405,8 +439,8 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
       const asked = new Set([round.question, ...round.followups.map(({ question }) => question)]
         .map((question) => questionKey(question, round.anchor)));
       const result = await requestResult(complete,
-        `${renderInterviewerPrompt(track)}\n现在判断当前题是否需要追问。根据本题已有回答选一个尚未问过、值得澄清的点，并沿用 round.anchor。回答已充分或没有合适的新角度时，返回 wrapup。`,
-        { projectText: session.input.projectText, jdText: session.input.jdText, round, unansweredStreak },
+        `${questionPrompt(track, session.input)}\n现在判断当前题是否需要追问。根据本题已有回答选一个尚未问过、值得澄清的点，并沿用 round.anchor。回答已充分或没有合适的新角度时，返回 wrapup。`,
+        { projectText: session.input.projectText, jdAnalysis: session.input.jdAnalysis, round, unansweredStreak },
         (value) => {
           const reply = readQuestion(value, "followup", updatedSession, round.anchor);
           if (typeof reply !== "string" && reply.type === "followup" && asked.has(questionKey(reply.question, round.anchor))) {

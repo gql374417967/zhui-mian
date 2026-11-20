@@ -55,14 +55,51 @@ async function generate(type, fixture, evidence, question, retryQuestion) {
     requests.push(messages[2]?.content);
     return JSON.stringify({ type, anchor: fixture.anchor, question: messages[2] ? retryQuestion : question });
   });
-  const input = { projectText: type === 'question' ? `${fixture.anchor}。${evidence}` : fixture.anchor, track: track.id, source: 'paste' };
+  const input = { projectText: type === 'question' ? `${fixture.anchor}。${evidence}` : fixture.anchor, track: track.id, source: 'paste', jdAnalysis: fixture.jdAnalysis };
   const started = await engine.start(input, track);
   const state = type === 'question' ? started : await engine.submitAnswer(started, evidence);
   assert.equal(state.phase, type);
   return { question: state.current.question, requests };
 }
 
+const experiment = {
+  anchor: '我收集了用户反馈',
+  jdAnalysis: { capabilities: ['A/B 实验设计'], focusPoints: ['选择样本和成功指标'] },
+};
+
 for (const type of ['question', 'followup']) {
+  test(`${type} A/B 实验细节需要候选人提供实际执行的证据`, async () => {
+    const hypothetical = '如果要做 A/B 实验，你会如何选择样本？';
+    const details = [
+      '你用什么指标评估 A/B 实验效果？',
+      'A/B 实验用了哪些样本？',
+      'A/B 实验结果如何？',
+      '你是否记录了 A/B 实验的结果？',
+      'A/B 实验持续了多久？',
+      '如果你复盘之前的 A/B 实验，你会如何解释结果？',
+    ];
+    const unconfirmed = [
+      '我没有做过 A/B 实验。',
+      '我只整理了用户反馈。',
+      '队友做过 A/B 实验，我只整理报告，没有参与。',
+      '我做了 A/B 实验报告。',
+    ];
+    for (const evidence of unconfirmed) {
+      for (const question of details) {
+        const result = await generate(type, experiment, evidence, question, hypothetical);
+        assert.equal(result.requests.length, 2, question);
+        assert.match(result.requests[1], /预设了候选人做过 A\/B 实验/);
+        assert.equal(result.question, hypothetical);
+      }
+      for (const question of [hypothetical, '你会用什么指标评估 A/B 实验效果？', '你做过 A/B 实验吗？', '你是否做过 A/B 实验？']) {
+        assert.deepEqual(await generate(type, experiment, evidence, question), { question, requests: [undefined] });
+      }
+    }
+    for (const question of details) {
+      assert.deepEqual(await generate(type, experiment, '我做过 A/B 实验。', question), { question, requests: [undefined] });
+    }
+  });
+
   for (const [name, fixture] of Object.entries({ resolution, direction })) {
     test(`${type} ${name} 原反例和未确认语境均带原因重试`, async () => {
       for (const evidence of [fixture.unknown, ...fixture.unconfirmed]) {

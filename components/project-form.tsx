@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { interviewInputKey } from "@/lib/interview-storage";
-import type { ProjectInput, ResumeExtraction, ResumeProject } from "@/lib/types";
+import { getTrackPreset, maxJdLength, trackPresets } from "@/lib/presets";
+import type { JdAnalysis, ProjectInput, ResumeExtraction, ResumeProject } from "@/lib/types";
 
-const tracks = ["后端开发", "前端开发", "算法", "产品", "运营", "数据", "通用"];
+type JdStatus = { kind: "idle" | "loading" } | { kind: "success"; analysis: JdAnalysis } | { kind: "error"; message: string };
 const fieldClassName = "w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
 type Candidate = ResumeProject & { selected: boolean };
@@ -21,6 +22,44 @@ export function ProjectForm() {
   const [uploadStatus, setUploadStatus] = useState({ message: "", error: false });
   const fileInput = useRef<HTMLInputElement>(null);
   const latestUpload = useRef<AbortController | null>(null);
+
+  const [jdText, setJdText] = useState("");
+  const [jdStatus, setJdStatus] = useState<JdStatus>({ kind: "idle" });
+  const latestJd = useRef<AbortController | null>(null);
+
+  function editJd(value: string) {
+    latestJd.current?.abort();
+    latestJd.current = null;
+    setJdText(value);
+    setJdStatus({ kind: "idle" });
+  }
+
+  async function parseJd() {
+    const text = jdText.trim();
+    if (!text || text.length > maxJdLength) return;
+
+    latestJd.current?.abort();
+    const request = new AbortController();
+    latestJd.current = request;
+    setJdStatus({ kind: "loading" });
+    try {
+      const response = await fetch("/api/parse-jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jdText: text }),
+        signal: request.signal,
+      });
+      const result: JdAnalysis & { error?: string } = await response.json();
+      if (latestJd.current !== request) return;
+      if (response.ok) {
+        setJdStatus({ kind: "success", analysis: result });
+      } else {
+        setJdStatus({ kind: "error", message: result.error || "JD 解析失败，请重试。" });
+      }
+    } catch {
+      if (latestJd.current === request) setJdStatus({ kind: "error", message: "JD 解析失败，请重试。" });
+    }
+  }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
@@ -83,7 +122,8 @@ export function ProjectForm() {
     }
     const input: ProjectInput = {
       projectText: experience.trim(),
-      track: String(new FormData(event.currentTarget).get("track")),
+      track: getTrackPreset(String(new FormData(event.currentTarget).get("track"))).name,
+      jdAnalysis: jdStatus.kind === "success" ? jdStatus.analysis : undefined,
       source,
     };
     try {
@@ -118,10 +158,34 @@ export function ProjectForm() {
         </label>
         <label className="block space-y-2">
           <span className="block text-sm font-medium">目标岗位</span>
-          <select name="track" defaultValue="后端开发" className={`${fieldClassName} min-h-11`}>
-            {tracks.map((track) => <option key={track}>{track}</option>)}
+          <select name="track" defaultValue={trackPresets[0].id} className={`${fieldClassName} min-h-11`}>
+            {trackPresets.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
           </select>
         </label>
+        <div className="space-y-2">
+          <label className="block space-y-2">
+            <span className="block text-sm font-medium">目标岗位 JD（选填）</span>
+            <textarea
+              rows={3}
+              value={jdText}
+              maxLength={maxJdLength}
+              onChange={(event) => editJd(event.currentTarget.value)}
+              className={`${fieldClassName} block resize-y`}
+              placeholder="粘贴招聘描述中的岗位职责和任职要求。"
+            />
+          </label>
+          <Button type="button" variant="outline" onClick={() => void parseJd()}
+            disabled={!jdText.trim() || jdStatus.kind === "loading"}>解析 JD</Button>
+          <div role="status" className="break-words text-sm leading-6">
+            {jdStatus.kind === "loading" && <p>正在解析 JD…</p>}
+            {jdStatus.kind === "error" && <p className="text-red-700">{jdStatus.message} 你可以直接用岗位模板开始面试。</p>}
+            {jdStatus.kind === "success" && <div className="rounded-lg bg-slate-50 p-3">
+              <p className="font-medium">JD 解析成功</p>
+              {jdStatus.analysis.capabilities.length > 0 && <p>岗位能力：{jdStatus.analysis.capabilities.join("、")}</p>}
+              {jdStatus.analysis.focusPoints.length > 0 && <p>考察重点：{jdStatus.analysis.focusPoints.join("、")}</p>}
+            </div>}
+          </div>
+        </div>
       </div>
       <p id="resume-upload-note" className="mt-5 text-sm leading-6 text-slate-600">
         支持 PDF、DOCX，单文件最多 5 MB。上传后，简历文字会交给模型提取项目经历。

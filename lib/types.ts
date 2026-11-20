@@ -1,8 +1,13 @@
 export interface ProjectInput {
   projectText: string;
   track: string;
-  jdText?: string;
+  jdAnalysis?: JdAnalysis;
   source: "paste" | "resume" | "demo";
+}
+
+export interface JdAnalysis {
+  capabilities: string[];
+  focusPoints: string[];
 }
 
 export interface ResumeProject {

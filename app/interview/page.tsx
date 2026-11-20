@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { createInterviewEngine, interviewQuestionCount, type InterviewResult, type InterviewState } from "@/lib/engine";
 import { interviewInputKey, interviewSessionKey, practiceStorageKey, readInterviewStorage, saveInterview, type SavedInterview } from "@/lib/interview-storage";
+import { getTrackPreset } from "@/lib/presets";
 import type { Feedback, ProjectInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -198,12 +199,8 @@ export default function InterviewPage() {
   }
 
   function start(snapshot: SavedInterview) {
-    void run("正在准备第一道题…", () => engine.start(snapshot.input, {
-      id: snapshot.input.track,
-      name: snapshot.input.track,
-      capabilities: ["个人贡献", "决策依据", "结果验证", "复盘反思"],
-      seedQuestions: [],
-    }), snapshot);
+    const track = getTrackPreset(snapshot.input.track);
+    void run("正在准备第一道题…", () => engine.start(snapshot.input, track), snapshot);
   }
 
   useEffect(() => {
