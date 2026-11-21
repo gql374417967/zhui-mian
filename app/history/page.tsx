@@ -95,8 +95,8 @@ export default function HistoryPage() {
         const total = scores.reduce((sum, entry) => sum + entry.score, 0);
         const checked = selectedRecords.includes(id);
         return <li key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
-          <div className="min-w-0">
-            {selecting && <label className="mb-2 flex w-fit items-center gap-2 text-sm text-slate-700">
+          <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">
+            {selecting && <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm text-slate-700">
               <input type="checkbox" className="size-4 accent-blue-700" checked={checked}
                 disabled={!checked && selectedRecords.length === 2} onChange={(event) => toggleSelection(id, event.target.checked)} />
               选择此记录

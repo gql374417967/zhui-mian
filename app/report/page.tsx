@@ -223,7 +223,7 @@ function ReportContent({ interview, original }: { interview: NonNullable<LoadedI
         <Section title="7 天提升计划">
           <p className="mb-3 text-sm text-slate-700">已完成 {checked.length} / 7 天</p>
           <ol className="space-y-2">{report.value.plan7d.map(({ day, action }) => <li key={day}>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3">
+            <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg bg-slate-50 p-3">
               <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" checked={checked.includes(day)} onChange={(event) => toggleDay(day, event.target.checked)} />
               <span className={prose}><strong className="mr-2">第 {day} 天</strong>{action}</span>
             </label>
@@ -260,9 +260,9 @@ function ReportContent({ interview, original }: { interview: NonNullable<LoadedI
 }
 
 function ReportLoader() {
-  const router = useRouter();
   const id = useSearchParams().get("id") ?? undefined;
   const [loaded, setLoaded] = useState<{ id?: string; interview: LoadedInterview; original: LoadedInterview }>();
+  const [finished, setFinished] = useState<{ id: string | undefined }>();
   useEffect(() => {
     let active = true;
     const requestedSources = new Set<string>();
@@ -279,16 +279,19 @@ function ReportLoader() {
       }
       return interview;
     };
-    const retrySources = () => { requestedSources.clear(); read(); };
-    const initial = read();
+    const finish = () => {
+      if (!active) return;
+      read();
+      setFinished({ id });
+    };
+    const pull = () => { void pullInterviews(id, !id).finally(finish); };
+    const retrySources = () => { requestedSources.clear(); read(); pull(); };
+    read();
     window.addEventListener(storageEvent, read);
     window.addEventListener("storage", read);
     window.addEventListener("online", retrySources);
-    const timeout = window.setTimeout(() => { if (active && !read()) router.replace("/"); }, 7000);
-    void pullInterviews(id, !id).finally(() => {
-      window.clearTimeout(timeout);
-      if (active && !read() && !initial) router.replace("/");
-    });
+    const timeout = window.setTimeout(finish, 7000);
+    pull();
     return () => {
       active = false;
       window.clearTimeout(timeout);
@@ -296,10 +299,18 @@ function ReportLoader() {
       window.removeEventListener("storage", read);
       window.removeEventListener("online", retrySources);
     };
-  }, [id, router]);
-  return loaded && loaded.id === id && loaded.interview
-    ? <ReportContent key={loaded.interview.session.id} interview={loaded.interview} original={loaded.original} />
-    : <p role="status" className="mx-auto max-w-5xl p-6 text-sm text-slate-700">正在读取复盘报告…</p>;
+  }, [id]);
+  if (loaded && loaded.id === id && loaded.interview) {
+    return <ReportContent key={loaded.interview.session.id} interview={loaded.interview} original={loaded.original} />;
+  }
+  if (finished && finished.id === id) {
+    return <main className="mx-auto max-w-5xl space-y-3 px-5 py-8 sm:px-8">
+      <h1 className="text-2xl font-bold">{id ? "未找到这份复盘报告" : "还没有复盘报告"}</h1>
+      <p className="text-sm text-slate-600">{id ? "可在历史记录中查看当前账号可用的报告。" : "提交回答并结束一轮面试后，即可查看复盘报告。"}</p>
+      <Button asChild><Link href={id ? "/history" : "/"}>{id ? "查看历史记录" : "准备面试"}</Link></Button>
+    </main>;
+  }
+  return <p role="status" className="mx-auto max-w-5xl p-6 text-sm text-slate-700">正在读取复盘报告…</p>;
 }
 
 export default function ReportPage() {

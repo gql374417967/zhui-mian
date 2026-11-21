@@ -40,10 +40,13 @@ export default function SettingsPage() {
     setSending(true);
     setEmailStatus("");
     try {
-      const error = await requestAccountLink(email.trim(), mode === "upgrade");
-      setEmailStatus(error ?? "邮件已发出。请在当前浏览器打开邮件中的确认链接。");
+      const result = await requestAccountLink(email.trim(), mode === "upgrade");
+      if (result.error) setEmailStatus(result.error);
+      else if (result.status === "upgraded") setEmailStatus("已升级为正式账号，可继续使用已有面试记录。");
+      else if (result.status === "confirmation-sent") setEmailStatus("请在当前浏览器打开邮件中的确认链接，完成账号升级。");
+      else setEmailStatus("登录链接已发送，请在当前浏览器打开邮件中的链接。");
     } catch {
-      setEmailStatus("暂时无法发送邮件，请稍后重试。");
+      setEmailStatus(mode === "upgrade" ? "暂时无法升级账号，请稍后重试。" : "暂时无法发送登录链接，请稍后重试。");
     } finally {
       setSending(false);
     }
@@ -75,7 +78,7 @@ export default function SettingsPage() {
           <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)}
             className="min-h-11 w-full max-w-sm rounded-md border border-slate-300 px-3 text-sm" />
           <div className="flex flex-wrap gap-2">
-            <Button disabled={sending}>{sending ? "正在发送…" : mode === "upgrade" ? "升级为正式账号" : "发送登录链接"}</Button>
+            <Button disabled={sending}>{mode === "upgrade" ? sending ? "正在升级…" : "升级为正式账号" : sending ? "正在发送…" : "发送登录链接"}</Button>
             <Button type="button" variant="outline" disabled={sending} onClick={() => { setMode(mode === "upgrade" ? "login" : "upgrade"); setEmailStatus(""); }}>
               {mode === "upgrade" ? "已有邮箱账号" : "返回账号升级"}
             </Button>
@@ -84,9 +87,11 @@ export default function SettingsPage() {
       </>}
       {emailStatus && <p role="status" className="text-sm text-slate-700">{emailStatus}</p>}
     </section>
-    <section className="space-y-3 rounded-xl border border-slate-200 p-5" aria-labelledby="delete-heading">
+    <section id="my-data" className="space-y-3 rounded-xl border border-slate-200 p-5" aria-labelledby="delete-heading">
       <h2 id="delete-heading" className="font-semibold">我的数据</h2>
-      <p id="delete-details" className="text-sm leading-6 text-slate-700">云端将删除当前账号的面试历史、输入、问答、报告和计划勾选。本浏览器还会清除这些记录、未完成的面试和重练草稿、待同步数据及朗读设置。删除不可恢复。</p>
+      <p className="text-sm leading-6 text-slate-700">启用云同步时，系统会为无需填写邮箱的访客创建匿名账号。匿名身份与当前浏览器的会话绑定。清除浏览器站点数据或更换浏览器后，可能无法找回该账号。升级为正式账号会保留已有记录。</p>
+      <p className="text-sm leading-6 text-slate-700">已完成的面试会同步到当前账号，包括项目经历、岗位和 JD 分析、面试问答、复盘报告及练习计划勾选。未完成的面试和重练草稿保存在本浏览器。</p>
+      <p id="delete-details" className="text-sm leading-6 text-slate-700">点击下方按钮并确认，可删除当前账号的云端面试记录，并清除此浏览器中对应的记录、草稿、待同步数据和朗读设置。离线时，云端删除会在该账号恢复连接后重试。删除不可恢复。</p>
       <Button type="button" variant="destructive" aria-describedby="delete-details" disabled={deleting || pending || confirm} onClick={() => setConfirm(true)}>删除我的全部数据</Button>
       {confirm && <div role="alertdialog" aria-labelledby="confirm-delete-title" aria-describedby="delete-details" className="space-y-3 rounded-lg border border-red-200 p-3">
         <p id="confirm-delete-title" className="text-sm font-semibold">确定永久删除这些数据吗？</p>

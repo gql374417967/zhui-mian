@@ -27,7 +27,7 @@
 - step1-05-历史页.png
 
 ## 验证截图
-- step2-01-API流式验证通过.png（/api-test 调试页实测：29 片段 / 首字 1499ms / 总 2734ms）
+- step2-01-API流式验证通过.png（当时的临时调试页实测：29 片段 / 首字 1499ms / 总 2734ms）
 - [Step 4 锚点补丁 TRAE 会话截图](<screenshot-step4-锚点补丁.png>)，Session ID `6afdff26688eb37b5ca382b0`。独立复验通过 TypeScript、同盘隔离生产构建及锚点回归测试。真实模型跑完 4 道主问题和 5 道追问，生成 4 份结构化反馈和 1 份结构化复盘，耗时 164 秒。7 次重试均由单题校验触发，其中 5 道问题最终使用兜底模板。本轮未触发锚点校验重试。
 
 - [Step 4 反馈与单题修复 TRAE 会话截图](<screenshot-step4-反馈与单题修复.png>)，Session ID `6afdff26688eb37b5ca382b0`。独立复验通过 TypeScript、隔离生产构建与模拟回归。模拟覆盖短回答、伪造及跨回答拼接引用、版本号和小数单题、明确多问。真实模型跑完 4 道主问题和 8 道追问，生成 4 份结构化反馈和 1 份结构化复盘，17 次调用，零重试、零兜底，耗时 112 秒，所有反馈引用均可追溯至本题回答。另用一句短回答单独验证真实评分，缺失事实以「待补充」标注。实测仍出现同一题内重复追问和预设未确认数值的问法。
@@ -97,13 +97,18 @@
 - 发现真 bug：对比总结请求在网络层失败（断网/连接中断）时，ReportComparison 的 load() catch 分支不更新状态，页面永久停留在「正在生成对比总结…」，降级文案只在收到 HTTP 错误响应时出现。断网是 Step 10 已验收场景，此 bug 需修复后 Step 11 方可通过。
 - Step 11 修复复验（同一 Session ID，隔离预览 3043 修复后构建）。断网复验：拦截 compare 请求使 fetch 层抛错，降级文案「暂时无法生成对比总结，可查看上方逐题分差。」即时出现，不再卡「正在生成」，分差区块保持可用；abort 有守卫，不误报。成功路径无回归：真实总结生成、分差 `↑ +4`/`↓ -1`、雷达双系列叠加、恢复联网后重新加载总结正常。390px 无溢出，页面零异常，16 项回归与 TypeScript 通过。Step 11 通过独立验收。截图：[成功路径](<step11-independent-success-path.png>)、[断网降级](<step11-independent-offline-fallback.png>)、[恢复联网](<step11-independent-restored.png>)、[对比区块](<step11-independent-comparison-state.png>)。
 
+## Step 12 示例体验与全站打磨
+
+- TRAE Session ID `6b013152688eb37b5ca38fba` 已确认。实现：favicon、升级/登录文案分类（upgraded / confirmation-sent / login-sent / error）、api-test 与 chat-stream-check 清理、六页 390px 巡检、debug.log 忽略。预览 `http://localhost:3044/`。
+- 独立复验：favicon HTTP 200（404 消除）；浏览器实测升级流程显示「已升级为正式账号，可继续使用已有面试记录。」（autoconfirm 措辞已准确）；390px 六页无横向溢出；控制台与页面零错误、零 404；16 项回归、TypeScript 通过。api-test 与 chat-stream-check 已删除。
+- 有意偏差（已接受）：/report 空数据不再重定向首页，改为空态页「还没有复盘报告」——告知页面用途优于静默跳转，无信息泄漏。已从 Step 7 的"重定向"要求改为记录在案。
+- 验收截图：[首页](<step12-independent-home.png>)、[面试](<step12-independent-interview.png>)、[历史](<step12-independent-history.png>)、[设置](<step12-independent-settings.png>)、[升级文案](<step12-independent-upgrade.png>)、[空报告](<step12-independent-report-empty.png>)。TRAE 巡检截图 step12-*-390.png 共 8 张亦已入库。
+
 ## 备注
-- `app/api-test/page.tsx` 为临时调试页（验证 /api/chat 用，非 TRAE 生成，验收后可在 Step 12 删除）
 - Session ID 查询方法：TRAE 界面不直接展示，存于
   `C:\Users\LEGION\AppData\Roaming\Trae\User\workspaceStorage\<workspace>\state.vscdb` 的
   `ai-chat-v2.lastActiveSessionId` 键
 
 ## 待办备忘
-- [ ] favicon 404（Step 12 打磨时让 TRAE 补站点图标）
 - [x] Step 10 jd_text 列名 bug：已由 TRAE 修复（toRow 改用 jd_analysis、upsert 失败留 console.warn），独立复验通过。
 - [x] Step 10 独立全链路复验（隔离生产预览 3041，修复后构建）：匿名登录与上云（面试结束后数秒内落库）、/history 列表、RLS 隔离（B 直查看不到 A，服务端 SQL 复核）、升级邮箱（UID 稳定、is_anonymous 转正、数据归属）、删除（本地清空 + 服务端复核云端 0 行）、B 不受影响。断网降级与未登录历史采用 TRAE 的浏览器截图佐证（断网复盘降级、未登录历史、模拟云端失败时历史可用）。另发现并修复验收环境问题：Supabase 密钥文件（.supabase-keys.json 含 service_role、.supabase-db-pass.local、.supabase-project-ref.local）已补进 .gitignore。测试残留数据已从云端清理。

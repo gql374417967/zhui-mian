@@ -281,10 +281,10 @@ export default function InterviewPage() {
       <header className="sticky top-0 z-10 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-white pb-4 pt-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{state?.practice ? "同题重练" : "模拟面试"}</h1>
-          {saved && <p className="mt-1 text-sm text-slate-600">{saved.input.track}</p>}
+          {saved && <p className="mt-1 text-sm text-slate-600 [overflow-wrap:anywhere]">{saved.input.track}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
+          <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
             <input type="checkbox" role="switch" className="size-4 accent-primary" checked={tts.autoRead}
               onChange={(event) => tts.changeAutoRead(event.currentTarget.checked)} />
             自动朗读

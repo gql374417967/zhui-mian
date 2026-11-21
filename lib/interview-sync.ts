@@ -183,18 +183,24 @@ export function startInterviewSync() {
 
 export async function requestAccountLink(email: string, upgrade: boolean) {
   const client = browserSupabase();
-  if (!client) return "云端账号暂不可用。";
+  if (!client) return { error: "云端账号暂不可用。" };
   const emailRedirectTo = new URL("/auth/callback", window.location.origin).toString();
-  const active = upgrade ? await ensureSession() : null;
-  if (upgrade && !active?.is_anonymous) return "匿名会话暂不可用，请恢复连接后重试。";
-  const { error } = upgrade
-    ? await client.auth.updateUser({ email }, { emailRedirectTo })
-    : await client.auth.signInWithOtp({ email, options: { emailRedirectTo, shouldCreateUser: false } });
-  if (!error) return;
-  if (["email_exists", "user_already_exists", "identity_already_exists"].includes(error.code ?? "")) {
-    return "该邮箱已关联其他账号。请使用新邮箱升级当前匿名账号。";
+
+  if (!upgrade) {
+    const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo, shouldCreateUser: false } });
+    return error ? { error: "无法发送登录链接。请检查邮箱地址后重试。" } : { status: "login-sent" as const };
   }
-  return "暂时无法发送邮件。请检查邮箱地址，稍后重试。";
+
+  const active = await ensureSession();
+  if (!active?.is_anonymous) return { error: "匿名会话暂不可用，请恢复连接后重试。" };
+  const { data, error } = await client.auth.updateUser({ email }, { emailRedirectTo });
+  if (error) {
+    const taken = ["email_exists", "user_already_exists", "identity_already_exists"].includes(error.code ?? "");
+    return { error: taken ? "该邮箱已关联其他账号。请使用新邮箱升级当前匿名账号。" : "暂时无法升级账号。请检查邮箱地址后重试。" };
+  }
+  return data.user && !data.user.is_anonymous && data.user.email_confirmed_at
+    ? { status: "upgraded" as const }
+    : { status: "confirmation-sent" as const };
 }
 
 export async function deleteInterviewData() {

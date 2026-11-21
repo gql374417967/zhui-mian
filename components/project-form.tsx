@@ -210,8 +210,8 @@ export function ProjectForm() {
           <h3 id="resume-projects" className="font-semibold">选择要练习的项目</h3>
           {candidates.map((project, index) => (
             <div key={index} className="min-w-0 space-y-2 rounded-lg border border-border p-3 text-sm">
-              <label className="flex items-start gap-2 font-medium">
-                <input type="checkbox" checked={project.selected} onChange={(event) => updateCandidate(index, { selected: event.currentTarget.checked })} className="mt-1 shrink-0" />
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 font-medium">
+                <input type="checkbox" checked={project.selected} onChange={(event) => updateCandidate(index, { selected: event.currentTarget.checked })} className="shrink-0" />
                 <span className="min-w-0 break-words">{project.name.trim() || `项目 ${index + 1}`}</span>
               </label>
               <label className="block space-y-1">
