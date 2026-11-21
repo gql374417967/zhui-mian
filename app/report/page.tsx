@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
+import { ReportComparison } from "@/components/report-comparison";
+import { compareInterviews } from "@/lib/practice-compare";
 import type { InterviewResult } from "@/lib/engine";
 import { practiceQuestions, preparePractice } from "@/lib/interview-practice";
 import { hasSubmittedAnswer, readCompletedInterview, readPlan, savePlan, storageEvent } from "@/lib/interview-storage";
@@ -83,11 +85,14 @@ function RoundFeedback({ round, result }: { round: Round; result?: InterviewResu
   </li>;
 }
 
-function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof readCompletedInterview>> }) {
+type LoadedInterview = ReturnType<typeof readCompletedInterview>;
+
+function ReportContent({ interview, original }: { interview: NonNullable<LoadedInterview>; original: LoadedInterview }) {
   const router = useRouter();
   const content = useRef<HTMLDivElement>(null);
   const { session, feedback, report, practice } = interview;
   const { id, input } = session;
+  const comparison = original ? compareInterviews(original, interview) : undefined;
   const answered = session.rounds.filter(hasSubmittedAnswer);
   const weakest = practiceQuestions(interview);
   const [checked, setChecked] = useState(() => readPlan(id));
@@ -196,14 +201,15 @@ function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof
       {weakest.length > 0 && <Button disabled={practiceBusy} onClick={() => void startPractice()}>
         <RotateCcw size={16} aria-hidden="true" />{weakest.length === 1 ? "重练这题" : "重练最弱两题"}
       </Button>}
-      {practice && <Button variant="outline" asChild><Link href={`/report?id=${encodeURIComponent(practice.sourceId)}`}>查看原报告</Link></Button>}
+      {original && <Button variant="outline" asChild><Link href={`/report?id=${encodeURIComponent(original.session.id)}`}>查看原报告</Link></Button>}
     </div>
     {(exportError || practiceError) && <p role="alert" className="mb-3 text-sm text-red-800">{exportError || practiceError}</p>}
     <div ref={content} data-report-content className="space-y-4 rounded-2xl bg-slate-50 p-3 sm:space-y-5 sm:p-6">
       <header className="rounded-2xl bg-slate-900 p-5 text-white sm:p-7">
-        <h1 className="text-2xl font-bold sm:text-3xl">{practice ? "重练复盘报告" : "面试复盘报告"}</h1>
-        <p className="mt-2 break-words text-sm text-slate-200">{input.track} · 已回答 {answered.length} 题{practice && ` / 共 ${practice.questions.length} 道重练题`}</p>
+        <h1 className="text-2xl font-bold sm:text-3xl">{original ? "重练复盘报告" : "面试复盘报告"}</h1>
+        <p className="mt-2 break-words text-sm text-slate-200">{input.track} · 已回答 {answered.length} 题{original && practice && ` / 共 ${practice.questions.length} 道重练题`}</p>
       </header>
+      {comparison && <ReportComparison comparison={comparison} labels={["原轮", "重练轮"]} withSummary />}
       {report.format === "json" ? <RadarSection radar={report.value.radar} /> : <Section title="复盘说明"><p className={prose}>{report.text}</p></Section>}
       <Section title="逐题反馈">
         <ol className="space-y-3">{answered.map((round) => <RoundFeedback key={round.index} round={round} result={feedback[round.index - 1]} />)}</ol>
@@ -256,17 +262,28 @@ function ReportContent({ interview }: { interview: NonNullable<ReturnType<typeof
 function ReportLoader() {
   const router = useRouter();
   const id = useSearchParams().get("id") ?? undefined;
-  const [loaded, setLoaded] = useState<{ id?: string; interview: ReturnType<typeof readCompletedInterview> }>();
+  const [loaded, setLoaded] = useState<{ id?: string; interview: LoadedInterview; original: LoadedInterview }>();
   useEffect(() => {
     let active = true;
+    const requestedSources = new Set<string>();
     const read = () => {
       const interview = readCompletedInterview(id);
-      if (active) setLoaded({ id, interview });
+      const sourceId = interview?.practice?.sourceId;
+      const original = sourceId && sourceId !== interview?.session.id ? readCompletedInterview(sourceId) : undefined;
+      if (active) {
+        setLoaded({ id, interview, original });
+        if (sourceId && sourceId !== interview?.session.id && !original && navigator.onLine && !requestedSources.has(sourceId)) {
+          requestedSources.add(sourceId);
+          void pullInterviews(sourceId).finally(() => { if (active) read(); });
+        }
+      }
       return interview;
     };
+    const retrySources = () => { requestedSources.clear(); read(); };
     const initial = read();
     window.addEventListener(storageEvent, read);
     window.addEventListener("storage", read);
+    window.addEventListener("online", retrySources);
     const timeout = window.setTimeout(() => { if (active && !read()) router.replace("/"); }, 7000);
     void pullInterviews(id, !id).finally(() => {
       window.clearTimeout(timeout);
@@ -277,10 +294,11 @@ function ReportLoader() {
       window.clearTimeout(timeout);
       window.removeEventListener(storageEvent, read);
       window.removeEventListener("storage", read);
+      window.removeEventListener("online", retrySources);
     };
   }, [id, router]);
   return loaded && loaded.id === id && loaded.interview
-    ? <ReportContent key={loaded.interview.session.id} interview={loaded.interview} />
+    ? <ReportContent key={loaded.interview.session.id} interview={loaded.interview} original={loaded.original} />
     : <p role="status" className="mx-auto max-w-5xl p-6 text-sm text-slate-700">正在读取复盘报告…</p>;
 }
 

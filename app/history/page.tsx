@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ReportComparison } from "@/components/report-comparison";
+import { compareInterviews } from "@/lib/practice-compare";
 import { practiceQuestions, preparePractice, scoredRounds } from "@/lib/interview-practice";
 import { interviewTime, listCompletedInterviews, storageEvent, type Archive, type CompletedInterview } from "@/lib/interview-storage";
 import { pullInterviews } from "@/lib/interview-sync";
@@ -16,6 +18,31 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [compared, setCompared] = useState<string[]>([]);
+  const selectedRecords = selected.filter((id) => records.some(({ interview }) => interview.session.id === id));
+  const first = records.find(({ interview }) => interview.session.id === compared[0])?.interview;
+  const second = records.find(({ interview }) => interview.session.id === compared[1])?.interview;
+  const comparison = first && second ? compareInterviews(first, second, true) : undefined;
+
+  function toggleSelection(id: string, checked: boolean) {
+    setSelected((previous) => {
+      const available = previous.filter((entry) => records.some(({ interview }) => interview.session.id === entry));
+      return checked ? (available.length < 2 ? [...available, id] : available) : available.filter((entry) => entry !== id);
+    });
+  }
+
+  function toggleCompareMode() {
+    setSelecting(!selecting);
+    setSelected([]);
+    setCompared([]);
+  }
+
+  function recordLabel(interview: CompletedInterview, order: string) {
+    const time = Date.parse(interviewTime(interview));
+    return `${order} · ${interview.session.input.track}${interview.practice ? " · 同题重练" : ""}${Number.isFinite(time) ? ` · ${dateFormat.format(time)}` : ""}`;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -48,7 +75,17 @@ export default function HistoryPage() {
   }
 
   return <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
-    <h1 className="text-2xl font-bold">历史记录</h1>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-2xl font-bold">历史记录</h1>
+      {records.length >= 2 && <Button variant="outline" onClick={toggleCompareMode}>{selecting ? "退出对比" : "选择记录对比"}</Button>}
+    </div>
+    {selecting && <div className="mt-4 flex flex-wrap items-center gap-3">
+      <p role="status" className="text-sm text-slate-700">已选择 {selectedRecords.length} / 2 条记录</p>
+      <Button disabled={selectedRecords.length !== 2} onClick={() => setCompared(selectedRecords)}>对比</Button>
+    </div>}
+    {comparison && <div className="mt-5">
+      <ReportComparison comparison={comparison} labels={[recordLabel(comparison.original, "前轮"), recordLabel(comparison.current, "后轮")]} />
+    </div>}
     {error && <p role="alert" className="mt-4 text-sm text-red-800">{error}</p>}
     {records.length ? <ul className="mt-5 space-y-3">
       {records.map(({ interview }) => {
@@ -56,8 +93,14 @@ export default function HistoryPage() {
         const time = interviewTime(interview);
         const scores = scoredRounds(interview);
         const total = scores.reduce((sum, entry) => sum + entry.score, 0);
+        const checked = selectedRecords.includes(id);
         return <li key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
           <div className="min-w-0">
+            {selecting && <label className="mb-2 flex w-fit items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" className="size-4 accent-blue-700" checked={checked}
+                disabled={!checked && selectedRecords.length === 2} onChange={(event) => toggleSelection(id, event.target.checked)} />
+              选择此记录
+            </label>}
             <h2 className="break-words font-semibold">{input.track}{interview.practice && " · 同题重练"}</h2>
             <p className="mt-1 text-sm text-slate-600">
               <time dateTime={time}>{Number.isFinite(Date.parse(time)) ? dateFormat.format(new Date(time)) : "时间未知"}</time>
