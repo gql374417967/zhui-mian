@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { spaceCjkLatin } from "@/lib/ai-text";
 import { projectRewritePrompt } from "@/lib/prompts";
 import type { ProjectRewrite } from "@/lib/types";
 
@@ -78,7 +79,12 @@ export async function POST(request: Request) {
         ],
       }, { signal });
       const result = readRewrite(completion.choices[0]?.message.content ?? "", source);
-      if (result) return Response.json(result);
+      if (result) {
+        return Response.json({
+          rewrite: spaceCjkLatin(result.rewrite),
+          notes: result.notes.map((note) => spaceCjkLatin(note)),
+        } satisfies ProjectRewrite);
+      }
       correction = "\n上一次结果未通过校验。只返回规定的编号数组，编号必须存在且不得重复。";
     }
   } catch {

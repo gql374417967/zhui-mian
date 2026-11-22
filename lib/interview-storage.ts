@@ -21,6 +21,13 @@ export const practiceStorageKey = (id: string) => `zhui-mian:practice:${id}`;
 export const planStorageKey = (id: string) => `zhui-mian:plan:${id}`;
 const reportStorageKey = (id: string) => `zhui-mian:report:${id}`;
 const pendingKey = (id: string) => `zhui-mian:pending:${id}`;
+const generatingKey = (id: string) => `zhui-mian:generating:${id}`;
+
+export type PendingReport = {
+  snapshot: SavedInterview;
+  state: InterviewState;
+  storageKey: string;
+};
 const deletionKey = (owner: string) => `zhui-mian:delete:${owner}`;
 
 export function notifyInterviewStorage() {
@@ -41,7 +48,7 @@ function storedKeys() {
 
 function isInterviewKey(key: string) {
   return key === interviewInputKey || key === interviewSessionKey || key === latestReportKey ||
-    /^zhui-mian:(report|plan|practice|pending):/.test(key);
+    /^zhui-mian:(report|plan|practice|pending|generating):/.test(key);
 }
 
 export function selectLocalOwner(owner: string, adoptLocal: boolean) {
@@ -117,6 +124,28 @@ export function readCompletedInterview(id?: string, owner = localOwner()): Compl
 
   const legacy = readInterviewStorage<SavedInterview>(interviewSessionKey, owner)?.state;
   if (isCompletedInterview(legacy) && (id === undefined || legacy.session.id === id)) return legacy;
+}
+
+export function writePendingReport(id: string, pending: PendingReport) {
+  writeInterviewStorage(generatingKey(id), pending);
+}
+
+export function readPendingReport(id: string, owner = localOwner()): PendingReport | undefined {
+  const pending = readInterviewStorage<PendingReport>(generatingKey(id), owner);
+  return pending?.snapshot && pending.state?.session?.id === id && typeof pending.storageKey === "string"
+    ? pending : undefined;
+}
+
+export function hasPendingReport(id: string, owner = localOwner()) {
+  return Boolean(readPendingReport(id, owner));
+}
+
+export function clearPendingReport(id: string, owner = localOwner()) {
+  try {
+    localStorage.removeItem(scopedKey(generatingKey(id), owner));
+  } catch {
+    // 浏览器限制存储时，页面仍可依靠内存中的任务状态。
+  }
 }
 
 export function readPlan(id: string, owner = localOwner()) {

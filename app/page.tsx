@@ -10,7 +10,7 @@ export default function HomePage() {
         <section className="max-w-xl md:pt-6" aria-labelledby="hero-title">
           <p className="text-sm font-semibold text-primary">追问式模拟面试</p>
           <h1 id="hero-title" className="mt-4 text-4xl font-bold leading-tight tracking-tight sm:text-5xl sm:leading-tight">
-            练习把<span className="text-primary">项目经历</span>讲清楚
+            练习把<span className="text-primary">项目经历</span><span className="whitespace-nowrap">讲清楚</span>
           </h1>
           <p className="mt-5 max-w-sm leading-7 text-slate-600">
             从你的项目经历出发，练习面试里的层层追问，把你的贡献、决策和结果讲清楚。

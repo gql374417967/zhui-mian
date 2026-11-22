@@ -3,13 +3,17 @@ import mammoth from "mammoth";
 import OpenAI from "openai";
 import { PDFParse } from "pdf-parse";
 import { fromBuffer, type Entry, type ZipFile } from "yauzl";
+import { spaceCjkLatin } from "@/lib/ai-text";
 import { resumeExtractionPrompt } from "@/lib/prompts";
+import { rateLimit, requestSessionKey } from "@/lib/rate-limit";
 import type { ResumeExtraction } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 // Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
 export const maxDuration = 60;
+
+const requestsPerMinute = 10;
 
 const maxFileSize = 5 * 1024 * 1024;
 const maxRequestSize = maxFileSize + 64 * 1024;
@@ -203,6 +207,14 @@ function validateProjects(content: string, text: string): ResumeExtraction | und
 }
 
 export async function POST(request: Request) {
+  const limit = rateLimit(`resume:${requestSessionKey(request)}`, requestsPerMinute);
+  if (!limit.ok) {
+    return Response.json({ error: `请求过于频繁，请 ${limit.retryAfter} 秒后再试。` }, {
+      status: 429,
+      headers: { "Retry-After": String(limit.retryAfter) },
+    });
+  }
+
   let file: File;
   try {
     file = await readUpload(request);
@@ -237,7 +249,15 @@ export async function POST(request: Request) {
       ],
     }, { signal });
     const result = validateProjects(completion.choices[0]?.message.content ?? "", text);
-    if (result) return Response.json(result);
+    if (result) {
+      return Response.json({
+        projects: result.projects.map((project) => ({
+          name: spaceCjkLatin(project.name),
+          text: spaceCjkLatin(project.text),
+          highlights: project.highlights.map((item) => spaceCjkLatin(item)),
+        })),
+      } satisfies ResumeExtraction);
+    }
   } catch {
     if (timeout.aborted) return failure("modelTimeout");
   }

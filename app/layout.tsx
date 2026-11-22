@@ -18,8 +18,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <footer className="border-t border-border">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 px-5 py-2 text-sm text-slate-600 sm:px-8">
             <p>无需邮箱即可开始。启用云同步时，已完成的面试会保存到当前账号。</p>
-            <Link href="/settings#my-data" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">了解及删除我的数据</Link>
             <Link href="/privacy" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">隐私与数据说明</Link>
+            <Link href="/settings#my-data" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">删除我的数据</Link>
           </div>
         </footer>
       </body>

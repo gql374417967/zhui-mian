@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { spaceCjkLatin } from "@/lib/ai-text";
 import { maxJdLength } from "@/lib/presets";
 import { jdExtractionPrompt } from "@/lib/prompts";
 import type { JdAnalysis } from "@/lib/types";
@@ -55,7 +56,12 @@ export async function POST(request: Request) {
       ],
     }, { signal: AbortSignal.any([request.signal, deadline]) });
     const result = readAnalysis(completion.choices[0]?.message.content ?? "");
-    if (result) return Response.json(result);
+    if (result) {
+      return Response.json({
+        capabilities: result.capabilities.map((item) => spaceCjkLatin(item)),
+        focusPoints: result.focusPoints.map((item) => spaceCjkLatin(item)),
+      } satisfies JdAnalysis);
+    }
   } catch (error) {
     if (deadline.aborted || error instanceof OpenAI.APIConnectionTimeoutError) {
       return Response.json({ error: "JD 解析超时，请重试。" }, { status: 504 });

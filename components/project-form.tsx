@@ -4,6 +4,7 @@ import { ArrowRight, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { clientSessionId } from "@/lib/client-session";
 import { interviewInputKey, writeInterviewStorage } from "@/lib/interview-storage";
 import { getTrackPreset, maxJdLength, trackPresets } from "@/lib/presets";
 import type { JdAnalysis, ProjectInput, ResumeExtraction, ResumeProject } from "@/lib/types";
@@ -83,7 +84,13 @@ export function ProjectForm() {
     const body = new FormData();
     body.append("file", file);
     try {
-      const response = await fetch("/api/parse-resume", { method: "POST", body, signal: upload.signal });
+      const sessionId = clientSessionId();
+      const response = await fetch("/api/parse-resume", {
+        method: "POST",
+        headers: sessionId ? { "x-session-id": sessionId } : undefined,
+        body,
+        signal: upload.signal,
+      });
       const result: ResumeExtraction & { error?: string } = await response.json();
       if (latestUpload.current !== upload) return;
       if (!response.ok) throw new Error(result.error || "简历解析失败，请重试。");
@@ -176,6 +183,7 @@ export function ProjectForm() {
           </label>
           <Button type="button" variant="outline" onClick={() => void parseJd()}
             disabled={!jdText.trim() || jdStatus.kind === "loading"}>解析 JD</Button>
+          {!jdText.trim() && <p className="text-sm text-slate-500">粘贴 JD 后可解析</p>}
           <div role="status" className="break-words text-sm leading-6">
             {jdStatus.kind === "loading" && <p>正在解析 JD…</p>}
             {jdStatus.kind === "error" && <p className="text-red-700">{jdStatus.message} 你可以直接用岗位模板开始面试。</p>}

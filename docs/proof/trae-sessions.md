@@ -120,6 +120,14 @@
 - TRAE Session ID `6b02cb06bc4fa9741b6ef372` 已确认收到指令。实现：/privacy 隐私与数据说明页（云端存什么、如何删除、匿名身份、仅供参考、不用于模型训练）、页脚链接、每页独立 metadata、README 与 .env.example 核对。预览 `http://localhost:3060/`。
 - 独立复验（Chrome 390px）：/privacy 五项内容齐全且准确、title「隐私与数据说明｜追面」；全站六页独立 meta 均含品牌名；favicon HTTP 200；无横向溢出；控制台与页面零错误、零 404；16 项回归与 TypeScript 通过。截图：[隐私页](<step14-independent-privacy-390.png>)。Step 14 通过独立验收。
 
+## Step 16 全面走查修复与多样性
+
+- 三个独立子代理对公网生产环境完成严格测试（核心流程 / 边界异常 / 内容巡检），合并修复清单 7 项 P1 + 7 项 P2，由 TRAE 一次修复完成（41 文件）。
+- ZCode 独立复验（隔离预览 3045 + 公网）：示例多样性三连测锚点各异（翻页问题/状态提示/分页测试）；断网提示与草稿保留、恢复联网重试 3 秒生效；全跳过结束态死链消除（说明文案替代查看报告按钮）；/api/chat 长度上限（35k 字符与 45 条消息均 400）；限流、tts 松绑、动态雷达懒加载就位。
+- 修复版部署公网（zhui-mian-h17stexjl，git-free 副本绕过 team 权限校验）：/privacy 200、favicon 200、公网多样性两场锚点均脱离 Redis 主题（问法措辞各异）。部署曾因 commit author 与 Vercel team 不匹配被拦（TEAM_ACCESS_REQUIRED），以无 .git 副本绕过。
+- 主表补 Step 9/11/12/13 行。全部 16 步完成。
+
+
 ## 备注
 - Session ID 查询方法：TRAE 界面不直接展示，存于
   `C:\Users\LEGION\AppData\Roaming\Trae\User\workspaceStorage\<workspace>\state.vscdb` 的

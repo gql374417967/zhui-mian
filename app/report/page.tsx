@@ -1,18 +1,24 @@
 "use client";
 
 import { Clipboard, Download, RotateCcw, Sparkles } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { ReportComparison } from "@/components/report-comparison";
 import { compareInterviews } from "@/lib/practice-compare";
 import type { InterviewResult } from "@/lib/engine";
 import { practiceQuestions, preparePractice } from "@/lib/interview-practice";
-import { hasSubmittedAnswer, readCompletedInterview, readPlan, savePlan, storageEvent } from "@/lib/interview-storage";
+import { hasPendingReport, hasSubmittedAnswer, readCompletedInterview, readPlan, savePlan, storageEvent } from "@/lib/interview-storage";
 import { pullInterviews } from "@/lib/interview-sync";
+import { reportJobState, resumeReportGeneration } from "@/lib/report-generation";
 import type { Feedback, ProjectRewrite, Report, Round } from "@/lib/types";
+
+const ReportRadar = dynamic(() => import("@/components/report-radar"), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-slate-600">正在绘制雷达图…</p>,
+});
 
 const card = "min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6";
 const prose = "whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6";
@@ -30,14 +36,7 @@ function RadarSection({ radar }: { radar: Report["radar"] }) {
   return <Section title="五维能力雷达">
     <div className="grid items-center gap-4 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       <div className="h-64 min-w-0 sm:h-72" aria-hidden="true">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-          <RadarChart data={data} outerRadius="61%">
-            <PolarGrid stroke="#cbd5e1" />
-            <PolarAngleAxis dataKey="label" tick={{ fill: "#334155", fontSize: 12 }} />
-            <PolarRadiusAxis domain={[0, 5]} tickCount={6} axisLine={false} tick={false} />
-            <Radar dataKey="score" stroke="#1d4ed8" strokeWidth={2} fill="#60a5fa" fillOpacity={0.35} isAnimationActive={false} />
-          </RadarChart>
-        </ResponsiveContainer>
+        <ReportRadar data={data} />
       </div>
       <dl className="grid grid-cols-2 gap-2 md:grid-cols-1">
         {data.map(({ label, score }) => <div key={label} className="flex flex-wrap items-center justify-between gap-x-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
@@ -75,7 +74,7 @@ function RoundFeedback({ round, result }: { round: Round; result?: InterviewResu
           <p className={`${prose} font-semibold`}>原句 · {said}</p>
           <p className={`${prose} mt-1 text-slate-700`}>{issue}</p>
         </div>
-        <p className={`${prose} min-w-0 rounded-lg bg-emerald-50 p-3 text-emerald-950`}><strong>改写　</strong>{rewrite}</p>
+        <p className={`${prose} min-w-0 rounded-lg bg-emerald-50 p-3 text-emerald-950`}><strong>{rewrite.trim() ? "改写" : "建议补充"}　</strong>{rewrite}</p>
       </div>)}
       {feedback.missed.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
         {feedback.missed.map((item, index) => <li className={prose} key={index}>{item}</li>)}
@@ -199,7 +198,7 @@ function ReportContent({ interview, original }: { interview: NonNullable<LoadedI
         <Download size={16} aria-hidden="true" />{exporting ? "正在导出…" : "导出报告长图"}
       </Button>
       {weakest.length > 0 && <Button disabled={practiceBusy} onClick={() => void startPractice()}>
-        <RotateCcw size={16} aria-hidden="true" />{weakest.length === 1 ? "重练这题" : "重练最弱两题"}
+        <RotateCcw size={16} aria-hidden="true" />同题重练
       </Button>}
       {original && <Button variant="outline" asChild><Link href={`/report?id=${encodeURIComponent(original.session.id)}`}>查看原报告</Link></Button>}
     </div>
@@ -263,6 +262,7 @@ function ReportLoader() {
   const id = useSearchParams().get("id") ?? undefined;
   const [loaded, setLoaded] = useState<{ id?: string; interview: LoadedInterview; original: LoadedInterview }>();
   const [finished, setFinished] = useState<{ id: string | undefined }>();
+  const [generation, setGeneration] = useState<{ status: "idle" | "running" } | { status: "failed"; message: string }>({ status: "idle" });
   useEffect(() => {
     let active = true;
     const requestedSources = new Set<string>();
@@ -272,6 +272,19 @@ function ReportLoader() {
       const original = sourceId && sourceId !== interview?.session.id ? readCompletedInterview(sourceId) : undefined;
       if (active) {
         setLoaded({ id, interview, original });
+        if (id && !interview) {
+          const job = reportJobState(id);
+          if (job?.status === "failed") {
+            setGeneration({ status: "failed", message: job.message });
+          } else if (job?.status === "running" || hasPendingReport(id)) {
+            setGeneration({ status: "running" });
+            if (job?.status !== "running") resumeReportGeneration(id);
+          } else {
+            setGeneration({ status: "idle" });
+          }
+        } else {
+          setGeneration({ status: "idle" });
+        }
         if (sourceId && sourceId !== interview?.session.id && !original && navigator.onLine && !requestedSources.has(sourceId)) {
           requestedSources.add(sourceId);
           void pullInterviews(sourceId).finally(() => { if (active) read(); });
@@ -300,8 +313,27 @@ function ReportLoader() {
       window.removeEventListener("online", retrySources);
     };
   }, [id]);
+
+  function retryGeneration() {
+    if (!id) return;
+    setGeneration({ status: "running" });
+    if (!resumeReportGeneration(id)) {
+      setGeneration({ status: "failed", message: "未找到待生成的复盘任务，请回到面试页重新结束面试。" });
+    }
+  }
+
   if (loaded && loaded.id === id && loaded.interview) {
     return <ReportContent key={loaded.interview.session.id} interview={loaded.interview} original={loaded.original} />;
+  }
+  if (generation.status !== "idle") {
+    return <main className="mx-auto max-w-5xl space-y-3 px-5 py-8 sm:px-8">
+      <h1 className="text-2xl font-bold">正在生成复盘报告，约需 1 分钟…</h1>
+      <p role="status" className="text-sm text-slate-600">完成后会自动切换到报告，失败时可以手动重试。</p>
+      {generation.status === "failed" && <>
+        <p role="alert" className="text-sm text-red-800">{generation.message}</p>
+        <Button className="w-fit" onClick={retryGeneration}>重试生成</Button>
+      </>}
+    </main>;
   }
   if (finished && finished.id === id) {
     return <main className="mx-auto max-w-5xl space-y-3 px-5 py-8 sm:px-8">

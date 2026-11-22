@@ -7,18 +7,41 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { createInterviewEngine, interviewQuestionCount, type InterviewResult, type InterviewState } from "@/lib/engine";
-import { interviewInputKey, interviewSessionKey, practiceStorageKey, readInterviewStorage, saveInterview, type SavedInterview } from "@/lib/interview-storage";
+import { createInterviewEngine, interviewQuestionCount, NetworkError, type InterviewResult, type InterviewState } from "@/lib/engine";
+import { hasSubmittedAnswer, interviewInputKey, interviewSessionKey, practiceStorageKey, readInterviewStorage, saveInterview, type SavedInterview } from "@/lib/interview-storage";
 import { getTrackPreset } from "@/lib/presets";
+import { queueReportGeneration } from "@/lib/report-generation";
 import type { Feedback, ProjectInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const engine = createInterviewEngine();
-const demoInput: ProjectInput = {
-  projectText: "参与开发校园二手交易小程序，负责后端接口开发，使用 Redis 优化了查询性能，用户反馈良好。",
-  track: "后端开发",
-  source: "demo",
-};
+const demoCountKey = "zhui-mian:demo-count";
+const demoBlocks = [
+  "为商品列表接口加了 Redis 缓存，做了性能优化，用户反馈良好。",
+  "负责商品列表分页，补过分页边界测试，处理了翻页时重复和漏数据的问题。",
+  "根据用户反馈分析，调整了发布失败时的状态提示，减少了用户的重复提交。",
+  "上线前整理了检查清单，接入了监控告警，跟着学长处理过一次线上故障。",
+];
+
+// 每次体验按顺序轮换起句，让连续几场的首题锚点分散在四个方向。
+function createDemoInput(): ProjectInput {
+  let count = Math.floor(Math.random() * demoBlocks.length);
+  try {
+    const saved = localStorage.getItem(demoCountKey);
+    if (saved !== null) count = Number(saved);
+    if (!Number.isFinite(count)) count = 0;
+    localStorage.setItem(demoCountKey, String(count + 1));
+  } catch {
+    // 浏览器限制存储时使用本次随机起点。
+  }
+  const offset = count % demoBlocks.length;
+  const blocks = [...demoBlocks.slice(offset), ...demoBlocks.slice(0, offset)];
+  return {
+    projectText: `${blocks.join("")}项目是校园二手交易小程序，我负责后端接口开发与上线维护。`,
+    track: "后端开发",
+    source: "demo",
+  };
+}
 
 function QuestionText({ text, animate }: { text: string; animate: boolean }) {
   const [visible, setVisible] = useState(animate ? 0 : text.length);
@@ -76,7 +99,7 @@ function QuestionCard({ question, anchor, followup, animate, read }: {
       </div>
       {anchor && (
         <blockquote className="mt-3 break-words rounded-md border-l-2 border-blue-500 bg-white px-3 py-2 text-sm leading-6 text-blue-950">
-          面试官抓住了这句：<mark className="bg-blue-100 text-inherit">{anchor}</mark>
+          面试官注意到了你项目经历里的这句：<mark className="bg-blue-100 text-inherit">{anchor}</mark>
         </blockquote>
       )}
       <QuestionText text={question} animate={animate} />
@@ -114,7 +137,7 @@ function FeedbackCard({ result, index }: { result: InterviewResult<Feedback>; in
                   <p className="mt-1 text-slate-600">{issue}</p>
                 </div>
                 <div className="min-w-0 break-words rounded-lg bg-emerald-50 px-3 py-2.5">
-                  <h4 className="font-semibold text-emerald-900">改写</h4>
+                  <h4 className="font-semibold text-emerald-900">{rewrite.trim() ? "改写" : "建议补充"}</h4>
                   <p className="whitespace-pre-wrap">{rewrite}</p>
                 </div>
               </li>
@@ -139,11 +162,15 @@ export default function InterviewPage() {
   const [saved, setSaved] = useState<SavedInterview | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [networkNotice, setNetworkNotice] = useState("");
+  const [pendingSubmit, setPendingSubmit] = useState(false);
+  const [restored, setRestored] = useState(false);
   const [storageError, setStorageError] = useState(false);
   const [animate, setAnimate] = useState(false);
   const mounted = useRef(false);
   const initialized = useRef(false);
   const inFlight = useRef(false);
+  const pendingRetry = useRef<null | (() => void)>(null);
   const latest = useRef<HTMLDivElement>(null);
   const latestSaved = useRef<SavedInterview | null>(null);
   const tts = useQuestionTts();
@@ -168,9 +195,23 @@ export default function InterviewPage() {
     }
   }
 
-  async function run(label: string, operation: () => Promise<InterviewState>, snapshot: SavedInterview, openReport = false) {
-    if (inFlight.current) return;
-    inFlight.current = true;
+  function clearPendingRetry() {
+    pendingRetry.current = null;
+    setPendingSubmit(false);
+    setNetworkNotice("");
+  }
+
+  async function run(
+    label: string,
+    operation: () => Promise<InterviewState>,
+    snapshot: SavedInterview,
+    options: { retry?: () => void; locked?: boolean } = {},
+  ) {
+    if (!options.locked) {
+      if (inFlight.current) return;
+      inFlight.current = true;
+    }
+    if (!options.retry) clearPendingRetry();
     tts.stop();
     voice.cancel();
     setBusy(label);
@@ -178,9 +219,11 @@ export default function InterviewPage() {
     try {
       const state = await operation();
       if (!mounted.current) return;
+      pendingRetry.current = null;
+      setPendingSubmit(false);
+      setNetworkNotice("");
       setAnimate(true);
-      const persisted = save({ ...snapshot, state, draft: "" });
-      if (openReport && persisted) router.push(`/report?id=${encodeURIComponent(state.session.id)}`);
+      save({ ...snapshot, state, draft: "" });
       const round = state.session.rounds.at(-1);
       if (round && state.phase !== "completed" && !voice.isCapturing() && document.visibilityState !== "hidden") {
         const previous = snapshot.state;
@@ -190,8 +233,17 @@ export default function InterviewPage() {
           previous.phase === "followup" ? previousRound.followups.length + 1 : 0);
         if (id !== previousId) void tts.play(id, state.current.question, true);
       }
-    } catch {
-      if (mounted.current) setError("操作未完成，请重试。已提交的进度和当前草稿仍在此页。");
+    } catch (caught) {
+      if (!mounted.current) return;
+      if (caught instanceof NetworkError && options.retry) {
+        pendingRetry.current = options.retry;
+        setPendingSubmit(true);
+        setNetworkNotice("网络异常，本次回答未送达 AI，已先记录在下方，可重试");
+      } else if (caught instanceof NetworkError) {
+        setError("网络异常，请检查网络连接后重试。已提交的进度和当前草稿仍在此页。");
+      } else {
+        setError("操作未完成，请重试。已提交的进度和当前草稿仍在此页。");
+      }
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy("");
@@ -200,7 +252,10 @@ export default function InterviewPage() {
 
   function start(snapshot: SavedInterview) {
     const track = getTrackPreset(snapshot.input.track);
-    void run("正在准备第一道题…", () => engine.start(snapshot.input, track), snapshot);
+    const anchorHint = snapshot.input.source === "demo"
+      ? snapshot.input.projectText.split(/[。！？\n]/)[0]?.trim() || undefined
+      : undefined;
+    void run("正在准备第一道题…", () => engine.start(snapshot.input, track, undefined, anchorHint), snapshot);
   }
 
   useEffect(() => {
@@ -215,10 +270,11 @@ export default function InterviewPage() {
         if (practice?.state?.practice && practice.state.session.id === practiceId) {
           latestSaved.current = practice;
           setSaved(practice);
+          setRestored(true);
         }
         return;
       }
-      const input = params.has("demo") ? demoInput
+      const input = params.has("demo") ? createDemoInput()
         : params.has("start") ? readInterviewStorage<ProjectInput>(interviewInputKey) : undefined;
       const stored = readInterviewStorage<SavedInterview>(interviewSessionKey);
       setReady(true);
@@ -230,12 +286,23 @@ export default function InterviewPage() {
         (stored.state === null || (stored.state?.session?.rounds?.length && Array.isArray(stored.state.feedback)))) {
         latestSaved.current = stored;
         setSaved(stored);
+        setRestored(Boolean(stored.state));
         if (!stored.state) start(stored);
       }
     }
     return () => { mounted.current = false; };
     // 首次挂载时读取浏览器本地会话，避免每次重新渲染都启动面试。
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // 恢复联网后自动重试未送达的回答，避免用户手动重发。
+    const retry = () => {
+      if (!navigator.onLine) return;
+      pendingRetry.current?.();
+    };
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
   }, []);
 
   const state = saved?.state;
@@ -250,12 +317,56 @@ export default function InterviewPage() {
   const activeRound = state?.session.rounds.at(-1);
   const totalQuestions = interviewQuestionCount(state);
   const active = state && state.phase !== "completed" ? state : null;
+  const answeredSession = state?.phase === "completed" && state.session.rounds.some(hasSubmittedAnswer);
+
+  function submitState(stateToSubmit: Extract<InterviewState, { phase: "question" | "followup" }>) {
+    const snapshot = latestSaved.current;
+    if (inFlight.current || !snapshot?.draft.trim()) return;
+    const answer = snapshot.draft;
+    const isLastMain = stateToSubmit.phase === "question" && stateToSubmit.session.rounds.length >= interviewQuestionCount(stateToSubmit);
+    // 从点击起同步上锁，直到状态更新完成前都不会再接受第二次提交。
+    inFlight.current = true;
+    void run(
+      isLastMain ? "正在生成复盘报告，约需 1 分钟…" : "面试官正在处理回答…",
+      () => engine.submitAnswer(stateToSubmit, answer),
+      snapshot,
+      { locked: true, retry: () => submitState(stateToSubmit) },
+    );
+  }
 
   function sendAnswer(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
+    if (inFlight.current || !active) return;
+    submitState(active);
+  }
+
+  function retryPendingSubmit() {
+    if (inFlight.current) return;
+    pendingRetry.current?.();
+  }
+
+  function endAndOpenReport() {
+    if (!active || inFlight.current) return;
     const snapshot = latestSaved.current;
-    if (!active || !snapshot?.draft.trim() || inFlight.current) return;
-    void run("面试官正在处理回答…", () => engine.submitAnswer(active, snapshot.draft), snapshot);
+    if (!snapshot) return;
+    if (!active.session.rounds.some(hasSubmittedAnswer)) {
+      void run("正在结束面试…", () => engine.endInterview(active), snapshot);
+      return;
+    }
+    tts.stop();
+    voice.cancel();
+    clearPendingRetry();
+    try {
+      queueReportGeneration(
+        active,
+        snapshot,
+        active.practice ? practiceStorageKey(active.session.id) : interviewSessionKey,
+      );
+    } catch {
+      setError("浏览器无法保存生成任务，请重试。");
+      return;
+    }
+    router.push(`/report?id=${encodeURIComponent(active.session.id)}`);
   }
 
   const recording = voice.phase === "recording";
@@ -282,6 +393,7 @@ export default function InterviewPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{state?.practice ? "同题重练" : "模拟面试"}</h1>
           {saved && <p className="mt-1 text-sm text-slate-600 [overflow-wrap:anywhere]">{saved.input.track}</p>}
+          {restored && saved?.state && <p className="mt-1 text-xs text-slate-500">进度已自动保存在本浏览器</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
@@ -300,7 +412,7 @@ export default function InterviewPage() {
           <div className="flex flex-wrap gap-2">
             <Button asChild><Link href="/">填写项目经历</Link></Button>
             <Button variant="outline" onClick={() => {
-              const snapshot = { input: demoInput, state: null, draft: "" };
+              const snapshot = { input: createDemoInput(), state: null, draft: "" };
               save(snapshot);
               start(snapshot);
             }}>用示例项目开始</Button>
@@ -337,6 +449,10 @@ export default function InterviewPage() {
       {active?.hint && <p className="mt-3 rounded-lg bg-amber-50 px-4 py-2 text-sm leading-6 text-amber-950">{active.hint}</p>}
       {busy && <p role="status" className="mt-3 text-sm text-slate-600">{busy}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}
+      {networkNotice && <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+        <p>{networkNotice}</p>
+        {pendingSubmit && <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={retryPendingSubmit}>重试提交</Button>}
+      </div>}
       {storageError && <p role="alert" className="mt-3 text-sm text-red-800">浏览器暂时无法保存进度，刷新可能丢失本次更改。</p>}
       <div ref={latest} className="scroll-mb-4" />
 
@@ -393,14 +509,16 @@ export default function InterviewPage() {
           {voice.error && <p role="alert" className="mt-2 text-sm leading-6 text-red-800">{voice.error}</p>}
           {voice.unavailable && <p className="mt-2 text-sm leading-6 text-slate-600">{voice.unavailable}</p>}
           <div className="mt-3 border-t border-border pt-3">
-            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={() => void run("正在生成复盘…", () => engine.endInterview(active), latestSaved.current ?? saved, true)}>结束并看报告</Button>
+            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={endAndOpenReport}>结束并看报告</Button>
           </div>
         </form>
       )}
       {saved && state?.phase === "completed" && (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
           <p role="status" className="text-sm font-semibold">本次面试已结束</p>
-          <Button onClick={() => { if (save(saved)) router.push(`/report?id=${encodeURIComponent(state.session.id)}`); }}>查看报告</Button>
+          {answeredSession
+            ? <Button onClick={() => { if (save(saved)) router.push(`/report?id=${encodeURIComponent(state.session.id)}`); }}>查看报告</Button>
+            : <p className="text-sm text-slate-600">本次面试未作答，无报告可生成</p>}
         </div>
       )}
     </main>

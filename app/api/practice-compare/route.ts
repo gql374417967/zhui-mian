@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { spaceCjkLatin } from "@/lib/ai-text";
 import { feedbackSummaryLimit, scoreDifference, type ComparisonEvidence, type PracticeCompareRequest, type PracticeCompareResponse } from "@/lib/practice-compare";
 
 export const runtime = "nodejs";
@@ -55,7 +56,7 @@ function formatSummary(content: string, questions: PracticeCompareRequest["quest
   const recommendation = concern
     ? `仍需注意的是，锚点「${concern.practice.anchor}」对应的题目，本轮反馈建议「${concern.practice.feedbackSummary}」。`
     : "本轮逐题反馈暂无可引用的改进建议。";
-  return overview + (improvement ? movement(improvement) : "") + decreased.map(movement).join("") + recommendation;
+  return spaceCjkLatin(overview + (improvement ? movement(improvement) : "") + decreased.map(movement).join("") + recommendation);
 }
 
 export async function POST(request: Request) {

@@ -1,3 +1,5 @@
+import { spaceCjkLatin } from "./ai-text";
+import { clientSessionId } from "./client-session";
 import { feedbackPrompt, jdInterviewPriority, renderInterviewerPrompt, reportPrompt } from "./prompts";
 import type { Feedback, InterviewSession, ProjectInput, Report, Round, TrackPreset } from "./types";
 
@@ -6,6 +8,14 @@ const followupLimit = 2;
 
 type ChatMessage = { role: "system" | "user"; content: string };
 export type ChatCompletion = (messages: ChatMessage[]) => Promise<string>;
+
+// 网络层失败与模型输出不合格分开处理，页面据此提示并提供重试。
+export class NetworkError extends Error {
+  constructor(message = "网络异常，请检查网络连接后重试。") {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
 
 export type InterviewResult<T> = { format: "json"; value: T } | { format: "text"; text: string };
 
@@ -20,6 +30,7 @@ type InterviewProgress = {
   track: TrackPreset;
   feedback: InterviewResult<Feedback>[];
   hint?: string;
+  anchorHint?: string;
 };
 
 export type InterviewState = InterviewProgress & (
@@ -33,11 +44,18 @@ export function interviewQuestionCount(progress?: InterviewProgress | null) {
 
 export function createChatCompletion(endpoint = "/api/chat"): ChatCompletion {
   return async (messages) => {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
-    });
+    const sessionId = clientSessionId();
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(sessionId ? { "x-session-id": sessionId } : {}) },
+        body: JSON.stringify({ messages }),
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new NetworkError();
+    }
     if (!response.ok || !response.body) throw new Error(`面试模型请求失败（HTTP ${response.status}）`);
 
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -45,7 +63,12 @@ export function createChatCompletion(endpoint = "/api/chat"): ChatCompletion {
     let text = "";
     try {
       for (;;) {
-        const chunk = await reader.read();
+        let chunk: ReadableStreamReadResult<string>;
+        try {
+          chunk = await reader.read();
+        } catch {
+          throw new NetworkError("网络连接中断，请检查网络后重试。");
+        }
         if (chunk.done) throw new Error("面试模型响应提前结束");
         buffer += chunk.value;
         const frames = buffer.split(/\r?\n\r?\n/);
@@ -106,9 +129,24 @@ function readFeedback(value: unknown, answers: string[]): Feedback | string {
     if (!answers.some((answer) => answer.includes(said))) {
       return `quotes 第 ${index + 1} 条的 said 未逐字出现在本题的主回答或任何一条追问回答中，请逐字复制或删除该引用`;
     }
+    const remainder = rewrite.replace(/待补充\s*[:：]?[^。；;\n]*/g, "").replace(/[\s\p{P}\p{S}]/gu, "");
+    if (!remainder) {
+      return `quotes 第 ${index + 1} 条的 rewrite 不能只标注待补充，请先重组本题主回答和追问回答里已提供的信息`;
+    }
     quotes.push({ said, issue, rewrite });
   }
-  return { score: result.score, star: { situation, task, action, result: outcome }, quotes, missed: result.missed, oneTip: result.one_tip };
+  return {
+    score: result.score,
+    star: {
+      situation: spaceCjkLatin(situation),
+      task: spaceCjkLatin(task),
+      action: spaceCjkLatin(action),
+      result: spaceCjkLatin(outcome),
+    },
+    quotes: quotes.map(({ said, issue, rewrite }) => ({ said, issue: spaceCjkLatin(issue), rewrite: spaceCjkLatin(rewrite) })),
+    missed: result.missed.map((item) => spaceCjkLatin(item)),
+    oneTip: spaceCjkLatin(result.one_tip),
+  };
 }
 
 function readReport(value: unknown): Report | string {
@@ -128,7 +166,12 @@ function readReport(value: unknown): Report | string {
     if (!day || day.day !== index + 1 || !isText(day.action)) return `plan_7d 第 ${index + 1} 条必须包含对应的 day 和非空的 action`;
     plan7d.push({ day: index + 1, action: day.action });
   }
-  return { radar: { 事实与数据, 个人贡献, 技术深度, 结果导向, 逻辑表达 }, patterns: result.patterns, plan7d, checklist: result.checklist };
+  return {
+    radar: { 事实与数据, 个人贡献, 技术深度, 结果导向, 逻辑表达 },
+    patterns: result.patterns.map((pattern) => spaceCjkLatin(pattern)),
+    plan7d: plan7d.map(({ day, action }) => ({ day, action: spaceCjkLatin(action) })),
+    checklist: result.checklist.map((item) => spaceCjkLatin(item)),
+  };
 }
 
 function parseReply<T extends object>(text: string, validate: (value: unknown) => T | string): T | string {
@@ -166,6 +209,7 @@ async function requestResult<T extends object>(
   ];
   let fallbackText = unavailable;
   let retryReason = "未收到完整的模型响应";
+  let networkFailures = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const request = attempt === 0 ? messages : [
       ...messages,
@@ -174,7 +218,8 @@ async function requestResult<T extends object>(
     let response: string;
     try {
       response = (await complete(request)).trim();
-    } catch {
+    } catch (error) {
+      if (error instanceof NetworkError) networkFailures += 1;
       continue;
     }
     const value = parseReply(response, validate);
@@ -182,6 +227,8 @@ async function requestResult<T extends object>(
     retryReason = value;
     if (allowPlainText && response && !/[{}\[\]`]/.test(response)) fallbackText = response;
   }
+  // 两次都因网络失败时不再静默降级，交给页面提示并保留本次回答。
+  if (networkFailures === 2) throw new NetworkError();
   return { format: "text", text: fallbackText };
 }
 
@@ -330,7 +377,7 @@ function readQuestion(value: unknown, expected: "question" | "followup", session
   if (!session.input.projectText.includes(anchor)) return "anchor 不在原文中，请从 projectText 逐字复制";
   if (expected === "question" && session.rounds.some((round) => normalizeAnchor(round.anchor) === anchor)) return "anchor 已在前面的主问题使用";
   if (expected === "followup" && (currentAnchor === undefined || normalizeAnchor(currentAnchor) !== anchor)) return "anchor 与当前主问题不同，请沿用 round.anchor";
-  return { type: expected, anchor, question: reply.question.trim() };
+  return { type: expected, anchor, question: spaceCjkLatin(reply.question.trim()) };
 }
 
 function isSingleQuestion(text: string): boolean {
@@ -392,15 +439,23 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
     const original = progress.practice?.questions[index];
     if (original) return openQuestion(progress, { type: "question", ...original });
 
+    // 示例体验由页面给出首题锚点，保证连续几场覆盖不同方向。
+    const anchorHint = index === 0 ? progress.anchorHint?.trim() : undefined;
     const result = await requestResult(complete,
-      `${questionPrompt(track, session.input)}\n现在只生成一道新的主问题，type 必须为 question。anchor 必须逐字引用 projectText，避免使用已问过的锚点。只选一个最值得深挖的缺口，question 只写一句问句。`,
+      `${questionPrompt(track, session.input)}\n现在只生成一道新的主问题，type 必须为 question。anchor 必须逐字引用 projectText，避免使用已问过的锚点。只选一个最值得深挖的缺口，question 只写一句问句。${anchorHint ? `\n第一题必须围绕这段原文出题：${anchorHint}` : ""}`,
       { projectText: session.input.projectText, jdAnalysis: session.input.jdAnalysis, questionNumber: index + 1, previousQuestions: session.rounds.map(({ anchor, question }) => ({ anchor, question })) },
-      (value) => readQuestion(value, "question", session), "", false);
+      (value) => {
+        const reply = readQuestion(value, "question", session);
+        if (typeof reply !== "string" && reply.type === "question" && anchorHint && !anchorHint.includes(reply.anchor)) {
+          return "第一题必须围绕指定的原文片段出题，请从该片段逐字引用 anchor";
+        }
+        return reply;
+      }, "", false);
     let current: Question;
     if (result.format === "json" && result.value.type === "question") {
       current = result.value;
     } else {
-      const anchor = chooseAnchor(session);
+      const anchor = anchorHint ?? chooseAnchor(session);
       const focus = track.capabilities[index % (track.capabilities.length || 1)];
       const fallback = `${focus ? `从${focus}的角度看，` : ""}${questionFocus[index]}`;
       current = { type: "question", anchor, question: `你写到「${anchor}」。${fallback}` };
@@ -414,12 +469,12 @@ export function createInterviewEngine(complete: ChatCompletion = createChatCompl
     return { ...progress, session: { ...session, rounds: [...session.rounds, round] }, phase: "question", current, unansweredStreak: 0 };
   }
 
-  async function start(input: ProjectInput, track: TrackPreset, practice?: Practice): Promise<InterviewState> {
+  async function start(input: ProjectInput, track: TrackPreset, practice?: Practice, anchorHint?: string): Promise<InterviewState> {
     if (!input.projectText.trim()) throw new Error("请先输入项目经历。");
     const session: InterviewSession = {
       id: globalThis.crypto.randomUUID(), input, rounds: [], status: "in_progress", startedAt: new Date().toISOString(),
     };
-    return nextQuestion({ session, track, feedback: [], practice });
+    return nextQuestion({ session, track, feedback: [], practice, anchorHint });
   }
 
   async function submitAnswer(state: InterviewState, response: string): Promise<InterviewState> {

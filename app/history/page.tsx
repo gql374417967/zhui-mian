@@ -115,6 +115,9 @@ export default function HistoryPage() {
           </div>
         </li>;
       })}
-    </ul> : <p role="status" className="mt-5 text-sm text-slate-600">{loading ? "正在读取历史记录…" : "还没有已完成的面试。"}</p>}
+    </ul> : <div className="mt-5 space-y-3">
+      <p role="status" className="text-sm text-slate-600">{loading ? "正在读取历史记录…" : "还没有已完成的面试。"}</p>
+      {!loading && <Button asChild><Link href="/interview">去模拟面试</Link></Button>}
+    </div>}
   </main>;
 }

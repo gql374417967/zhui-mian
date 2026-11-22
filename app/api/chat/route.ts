@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { rateLimit, requestSessionKey } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,10 @@ export const maxDuration = 60;
 const timeoutMs = 30_000;
 const timeoutMessage = "模型响应超时，请重试。";
 const upstreamErrorMessage = "模型服务暂时无法完成请求，请稍后重试。";
+const maxMessages = 40;
+const maxMessageLength = 8_000;
+const maxTotalLength = 32_000;
+const requestsPerMinute = 60;
 const encoder = new TextEncoder();
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -30,6 +35,14 @@ function sse(event: string, data: object) {
 }
 
 export async function POST(request: Request) {
+  const limit = rateLimit(`chat:${requestSessionKey(request)}`, requestsPerMinute);
+  if (!limit.ok) {
+    return Response.json({ error: `请求过于频繁，请 ${limit.retryAfter} 秒后再试。` }, {
+      status: 429,
+      headers: { "Retry-After": String(limit.retryAfter) },
+    });
+  }
+
   const apiKey = process.env.LLM_API_KEY?.trim();
   if (!apiKey || apiKey === "（占位，我稍后自己填）") {
     return Response.json({ error: "缺少 LLM_API_KEY，请在项目根目录的 .env.local 中填写 API Key。" }, { status: 503 });
@@ -39,6 +52,19 @@ export async function POST(request: Request) {
   const messages = (body as { messages?: unknown } | null)?.messages;
   if (!Array.isArray(messages) || messages.length === 0 || !messages.every(isChatMessage)) {
     return Response.json({ error: "messages 必须是非空数组，每条消息需包含有效的 role 和非空文本 content。" }, { status: 400 });
+  }
+  if (messages.length > maxMessages) {
+    return Response.json({ error: `单次最多提交 ${maxMessages} 条消息，请精简后重试。` }, { status: 400 });
+  }
+  let totalLength = 0;
+  for (const { content } of messages) {
+    if (content.length > maxMessageLength) {
+      return Response.json({ error: `单条消息不能超过 ${maxMessageLength} 字符，请精简后重试。` }, { status: 400 });
+    }
+    totalLength += content.length;
+  }
+  if (totalLength > maxTotalLength) {
+    return Response.json({ error: `消息总长度不能超过 ${maxTotalLength} 字符，请精简后重试。` }, { status: 400 });
   }
 
   const model = process.env.LLM_MODEL?.trim();

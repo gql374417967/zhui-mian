@@ -4,7 +4,6 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const endpoint = "https://api.siliconflow.cn/v1/audio/speech";
-const supportedModel = "FunAudioLLM/CosyVoice2-0.5B";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -15,7 +14,7 @@ export async function POST(request: Request) {
 
   const apiKey = process.env.SF_API_KEY?.trim();
   const model = process.env.TTS_MODEL?.trim();
-  if (!apiKey || apiKey === "（占位，我稍后自己填）" || model !== supportedModel) {
+  if (!apiKey || apiKey === "（占位，我稍后自己填）" || !model) {
     return Response.json({ error: "朗读服务尚未配置。" }, { status: 503 });
   }
 

@@ -1,8 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import { scoreDifference, type compareInterviews, type ComparisonRow, type PracticeCompareResponse } from "@/lib/practice-compare";
+
+const ComparisonRadar = dynamic(() => import("@/components/comparison-radar"), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-slate-600">正在绘制雷达图…</p>,
+});
 
 type Comparison = ReturnType<typeof compareInterviews>;
 const colors = { original: "#1d4ed8", current: "#7e22ce" };
@@ -56,15 +61,7 @@ export function ReportComparison({ comparison, labels, withSummary = false }: {
       </li>)}
     </ul>
     {radar.length ? <div className="h-60 min-w-0 sm:h-72" role="img" aria-label={radar.map(({ label, original, current }) => `${label} ${labels[0]} ${original} 分，${labels[1]} ${current} 分`).join("；")}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-        <RadarChart data={radar} outerRadius="58%">
-          <PolarGrid stroke="#cbd5e1" />
-          <PolarAngleAxis dataKey="label" tick={{ fill: "#334155", fontSize: 12 }} />
-          <PolarRadiusAxis domain={[0, 5]} tickCount={6} axisLine={false} tick={false} />
-          <Radar name={labels[0]} dataKey="original" stroke={colors.original} strokeWidth={2} fill={colors.original} fillOpacity={0.16} isAnimationActive={false} />
-          <Radar name={labels[1]} dataKey="current" stroke={colors.current} strokeWidth={2} strokeDasharray="5 3" fill={colors.current} fillOpacity={0.17} isAnimationActive={false} />
-        </RadarChart>
-      </ResponsiveContainer>
+      <ComparisonRadar data={radar} labels={labels} />
     </div> : <p className="text-sm text-slate-600">五维评分数据不足，暂无法叠加雷达图。</p>}
     <div>
       <h3 className="font-semibold text-slate-950">逐题分差</h3>
