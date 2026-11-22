@@ -127,4 +127,5 @@
 
 ## 待办备忘
 - [x] Step 10 jd_text 列名 bug：已由 TRAE 修复（toRow 改用 jd_analysis、upsert 失败留 console.warn），独立复验通过。
+- [x] Step 15 内测证据：部署首日（2026-11-22）邀请用户经公网地址完成真实面试，三张使用截图入库（step15-beta-radar / feedback / patterns-plan），第八节证据已写入报名材料。
 - [x] Step 10 独立全链路复验（隔离生产预览 3041，修复后构建）：匿名登录与上云（面试结束后数秒内落库）、/history 列表、RLS 隔离（B 直查看不到 A，服务端 SQL 复核）、升级邮箱（UID 稳定、is_anonymous 转正、数据归属）、删除（本地清空 + 服务端复核云端 0 行）、B 不受影响。断网降级与未登录历史采用 TRAE 的浏览器截图佐证（断网复盘降级、未登录历史、模拟云端失败时历史可用）。另发现并修复验收环境问题：Supabase 密钥文件（.supabase-keys.json 含 service_role、.supabase-db-pass.local、.supabase-project-ref.local）已补进 .gitignore。测试残留数据已从云端清理。
