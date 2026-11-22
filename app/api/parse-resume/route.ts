@@ -8,6 +8,9 @@ import type { ResumeExtraction } from "@/lib/types";
 
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 const maxFileSize = 5 * 1024 * 1024;
 const maxRequestSize = maxFileSize + 64 * 1024;
 const maxDocxExpandedSize = 24 * 1024 * 1024;

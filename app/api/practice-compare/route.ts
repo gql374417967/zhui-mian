@@ -3,6 +3,9 @@ import { feedbackSummaryLimit, scoreDifference, type ComparisonEvidence, type Pr
 
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 const timeoutMs = 12_000;
 
 function readEvidence(value: unknown): ComparisonEvidence | undefined {

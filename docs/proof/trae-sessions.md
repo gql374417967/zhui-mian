@@ -15,6 +15,9 @@
 | Step 8 简历上传解析 | 2026-11-20 | `6aff080c688eb37b5ca3895d` | 上传 PDF/DOCX 提取候选项目、勾选编辑回填、扫描件与损坏文件降级、5 MB 及 multipart 上限、面向简历原文的提示词 | 独立验证通过合成 PDF 真实提取（正文逐字来自原文）、扫描件 422、损坏 415、伪造 DOCX 422、超限 413、编辑后进入面试并正确锚定、390px 布局。DOCX 完整流程待复验。 |
 | Step 9 岗位模板与 JD 解析 | 2026-11-20 | `6affaba6688eb37b5ca38a7b` | 7 套岗位模板与种子题、JD 解析接口、岗位能力接入追问方向、A/B 实验事实边界校验 | 独立验收通过真实模型岗位差异对比、JD 提取、三组反例拦截（时长、历史预设、队友执行）、32 组正反例零失败、生产构建。 |
 | Step 10 Supabase 账号与历史 | 2026-11-21 | 见备注（修复在原会话完成） | 匿名登录、interviews 表与 RLS、自动上云、/history 列表、邮箱升级归属、删除数据、本地兜底 | 独立验收通过：真实匿名上云（数秒内落库）、/history、RLS 隔离（服务端 SQL 复核）、升级邮箱（UID 稳定、is_anonymous 转正）、删除（云端 0 行、B 不受影响）、断网降级与恢复补传。 |
+| Step 11 重练对比 | 2026-11-21 | 见备注（修复在原会话完成） | 两轮对比区块（雷达叠加、逐题分差、总结）、/history 双选、对比总结接口（模型选题号、服务端拼装） | 独立验收通过：分差 `↑+4`/`↓-1` 与锚点对应、总结引用真实分数、断网降级（修复后）、history 双选、导出含对比、16 项回归。 |
+| Step 12 全站打磨 | 2026-11-21 | `fd44d77` | favicon、升级/登录文案分类、api-test 清理、六页 390px 巡检、debug.log 忽略 | 独立复验通过：favicon 200、升级文案实测、六页无溢出、控制台零错误。/report 空态页为有意偏差（记录在案）。 |
+| Step 13 部署上线 | 2026-11-22 | 见备注（Vercel token 由用户提供） | 生产部署 https://zhui-mian.vercel.app、8 个环境变量、maxDuration=60、Supabase site_url 配置 | 公网实测通过：HTTPS、真实模型全流程（4 题多层追问）、报告/历史/升级、云端 6 条数据复核。 |
 
 ## 会话截图
 （手动用 Win+Shift+S 截 TRAE 对话窗口，命名如 `screenshot-step1.png` 放本目录）
@@ -103,6 +106,14 @@
 - 独立复验：favicon HTTP 200（404 消除）；浏览器实测升级流程显示「已升级为正式账号，可继续使用已有面试记录。」（autoconfirm 措辞已准确）；390px 六页无横向溢出；控制台与页面零错误、零 404；16 项回归、TypeScript 通过。api-test 与 chat-stream-check 已删除。
 - 有意偏差（已接受）：/report 空数据不再重定向首页，改为空态页「还没有复盘报告」——告知页面用途优于静默跳转，无信息泄漏。已从 Step 7 的"重定向"要求改为记录在案。
 - 验收截图：[首页](<step12-independent-home.png>)、[面试](<step12-independent-interview.png>)、[历史](<step12-independent-history.png>)、[设置](<step12-independent-settings.png>)、[升级文案](<step12-independent-upgrade.png>)、[空报告](<step12-independent-report-empty.png>)。TRAE 巡检截图 step12-*-390.png 共 8 张亦已入库。
+
+## Step 13 部署上线
+
+- TRAE Session ID `6b0170ae688eb37b5ca39127` 完成方案核对（EdgeOne/Vercel 对比、平台限制、需用户操作的账号步骤）。部署由 ZCode 执行：用户授权后提供 Vercel token（GitHub 登录+手机验证），`vercel link` 创建项目 zhui-mian，Management API 注入 8 个生产环境变量，`maxDuration = 60` 加入全部 7 个 API 路由（防免费版函数超时掐断 SSE），`.vercel` 加入 .gitignore，`VERCEL_OIDC_TOKEN` 从 .env.local 清除。
+- 生产地址 **https://zhui-mian.vercel.app**（构建 50 秒，Cloud 构建 16 项引擎回归随 GitHub 走）。Supabase site_url 已指向生产域名；项目开启邮件自动确认，升级与登录不依赖邮件跳转。
+- 公网实测（HTTPS + 真实模型 + 390px）：首页 888ms 渲染（Step 12 打磨后的新主标题）；真实模型面试走完 4 道主问题与多层追问，锚点引用逐字正确；跳过路径正确进入完成态；报告页雷达与逐题反馈渲染；/history 匿名身份空态符合设计；升级文案「已升级为正式账号」实测通过；控制台与页面零异常。截图：[完成态](<step13-public-done.png>)、[空历史](<step13-public-history-empty.png>)、[升级](<step13-public-upgraded.png>)、[报告](<step13-public-report-loading.png>)、[面试](<step13-public-interview-real.png>)。
+- 云端复核：interviews 表 6 条 completed 记录（含公网部署的多次真实面试），数据与公网会话一致。
+- 说明：公网 LLM 链路（评分、复盘）单次 30–90 秒属正常加载态，页面有「面试官正在处理回答…」提示；复盘慢不影响验收（脚本曾因等待过短误报一次）。
 
 ## 备注
 - Session ID 查询方法：TRAE 界面不直接展示，存于

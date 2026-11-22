@@ -11,3 +11,7 @@ next-env.d.ts
 .supabase-project-ref.local
 .supabase-keys.json
 debug.log
+.vercel
+
+.vercel
+.env*

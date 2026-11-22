@@ -5,6 +5,9 @@ import type { JdAnalysis } from "@/lib/types";
 
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 function readItems(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || value.length > 8) return;
   const items: string[] = [];

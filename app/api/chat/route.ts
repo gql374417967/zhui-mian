@@ -2,6 +2,9 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 const timeoutMs = 30_000;
 const timeoutMessage = "模型响应超时，请重试。";
 const upstreamErrorMessage = "模型服务暂时无法完成请求，请稍后重试。";

@@ -4,6 +4,9 @@ import type { ProjectRewrite } from "@/lib/types";
 
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 const star = { situation: "情境", task: "任务", action: "行动", result: "结果" } as const;
 const missingStar = { situation: "项目背景", task: "个人负责的任务", action: "本人执行的具体步骤", result: "项目结果及验证依据" } as const;
 const missingDetails = { metrics: "可核实的数字或量化指标", tools: "实际使用的工具或方法细节", outcome: "可核实的结果或验证依据" } as const;

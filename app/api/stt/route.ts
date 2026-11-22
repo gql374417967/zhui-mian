@@ -1,5 +1,8 @@
 export const runtime = "nodejs";
 
+// Vercel 免费版默认函数超时较短，显式放宽以覆盖 SSE 面试流与大文件解析。
+export const maxDuration = 60;
+
 const maxFileBytes = 4 * 1024 * 1024;
 const maxBodyBytes = maxFileBytes + 16 * 1024;
 const endpoint = "https://api.siliconflow.cn/v1/audio/transcriptions";
