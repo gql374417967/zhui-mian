@@ -115,6 +115,11 @@
 - 云端复核：interviews 表 6 条 completed 记录（含公网部署的多次真实面试），数据与公网会话一致。
 - 说明：公网 LLM 链路（评分、复盘）单次 30–90 秒属正常加载态，页面有「面试官正在处理回答…」提示；复盘慢不影响验收（脚本曾因等待过短误报一次）。
 
+## Step 14 稳定性与合规收尾
+
+- TRAE Session ID `6b02cb06bc4fa9741b6ef372` 已确认收到指令。实现：/privacy 隐私与数据说明页（云端存什么、如何删除、匿名身份、仅供参考、不用于模型训练）、页脚链接、每页独立 metadata、README 与 .env.example 核对。预览 `http://localhost:3060/`。
+- 独立复验（Chrome 390px）：/privacy 五项内容齐全且准确、title「隐私与数据说明｜追面」；全站六页独立 meta 均含品牌名；favicon HTTP 200；无横向溢出；控制台与页面零错误、零 404；16 项回归与 TypeScript 通过。截图：[隐私页](<step14-independent-privacy-390.png>)。Step 14 通过独立验收。
+
 ## 备注
 - Session ID 查询方法：TRAE 界面不直接展示，存于
   `C:\Users\LEGION\AppData\Roaming\Trae\User\workspaceStorage\<workspace>\state.vscdb` 的
